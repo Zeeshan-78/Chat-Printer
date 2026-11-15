@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chat Printer — Turn WhatsApp chats into PDF, PNG and HTML</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="site-h"><div class="in"><a class="logo" href="#home"><span class="lg">🖨️</span>Chat Printer</a><nav><a href="#home" data-nav="home">Home</a><a href="#contact" data-nav="contact">Contact</a><a href="#billing" data-nav="billing">Billing</a><a href="#account" data-nav="account" id="navacct">Sign in</a></nav></div></header>
+<div id="home" class="view">
+<section class="hero"><div class="in"><span class="pill">Your chat never leaves your browser</span><h1>Turn WhatsApp chats into PDF, PNG or HTML</h1><p>Upload an exported chat, preview it, and download a share-ready file with photos, voice notes and videos.</p>
+<div class="mock"><div class="bub l">Hi! Drop your exported chat here 📎</div><div class="bub r">chat.zip ✓✓</div><div class="bub l">Done! Download it as PDF, PNG or one HTML file 🎧🎞️</div></div>
+<button class="cta" id="cta">Upload a chat</button></div></section>
+<section class="feats in"><div class="card">🔒<h3>Privacy first</h3><p>Everything is processed in your browser.</p></div><div class="card">🎞️<h3>Media included</h3><p>Upload the zip: photos, voice notes and videos all play.</p></div><div class="card">📄<h3>3 formats</h3><p>PDF, PNG images or one complete HTML file.</p></div><div class="card">🔎<h3>Search and themes</h3><p>Filter messages and pick a light or dark theme.</p></div></section>
+<div class="wrap" id="tool">
+  <aside class="panel top">
+    <h1>Load your chat</h1>
+    <p class="sub">Upload the exported WhatsApp .zip or .txt file. Everything happens in your browser; your chat is never uploaded.</p>
+    <div class="planbar"><span id="plantext"></span> <a href="#billing">Upgrade</a></div>
+
+    <div class="drop" id="drop" tabindex="0">
+      <b>Choose a .zip (with media) or .txt file, or drop it here</b>
+      <span id="fname">Export Chat → Include Media (.zip)</span>
+    </div>
+    <input type="file" id="file" accept=".txt,.zip,text/plain,application/zip" hidden>
+
+    <label for="me">My name (right side)</label>
+    <select id="me" disabled></select>
+
+    <label for="title">Chat title</label>
+    <input type="text" id="title" placeholder="Chat title">
+
+    <label for="q">Search / filter</label>
+    <input type="text" id="q" placeholder="Only messages containing these words">
+
+    <label for="theme">Theme</label>
+    <select id="theme"><option value="light">Light</option><option value="dark">Dark</option></select>
+
+    <div class="check"><input type="checkbox" id="showTime" checked><span>Show time</span></div>
+    <div class="check"><input type="checkbox" id="showSys" checked><span>Show system messages</span></div>
+    <div class="check"><input type="checkbox" id="hideMedia"><span>Hide "Media omitted" messages</span></div>
+    <div class="check"><input type="checkbox" id="showDel" checked><span>Show deleted-message markers</span></div>
+    <label>Restore deleted messages</label>
+    <div class="btns"><button class="alt" id="addold">Add an older export...</button></div>
+    <input type="file" id="file2" accept=".txt,.zip,text/plain,application/zip" hidden>
+    <div class="hint">WhatsApp removes the text of deleted messages from exports. If you have an export taken before they were deleted, add it here and matching messages are restored.</div>
+
+    <label for="per">Messages per PNG image</label>
+    <input type="number" id="per" value="40" min="5" max="500">
+
+    <div class="btns">
+      <button id="pdf" disabled>Download PDF</button>
+      <button id="png" class="alt" disabled>Download PNG images</button>
+      <button id="html" class="alt" disabled>Download HTML (videos and voice play)</button>
+    </div>
+    <div class="status" id="status"></div>
+    <div class="info" id="info" hidden></div>
+    <div class="hint">PDF: choose "Save as PDF" in the print window. PNG: if several images are created, your browser may ask permission for multiple downloads.</div>
+  </aside>
+
+  <main class="stage" id="stage">
+    <div class="empty">No chat loaded yet.<br>Upload a .zip or .txt file on the left.</div>
+  </main>
+</div>
+
+</div>
+<section id="contact" class="view page in" hidden>
+<h2>Contact and support</h2><p>Questions, problems or ideas? Reach us here.</p>
+<div class="cols"><div class="card"><h3>Send us a message</h3><label for="cn">Name</label><input type="text" id="cn"><label for="ce">Email</label><input type="text" id="ce"><label for="cm">Message</label><textarea id="cm"></textarea><div class="btns"><button id="send">Send email</button></div><div class="status" id="cs"></div></div>
+<aside class="card"><h3>WhatsApp support</h3><p>Chat with us directly. We reply as soon as we can.</p><div class="btns"><button id="wasup">Open WhatsApp chat</button></div><h3>Email</h3><p><a id="mail"></a></p></aside></div>
+<h2 style="margin-top:28px">Help center</h2><div class="faq">
+<details><summary>How do I get my chat file?</summary><p>In WhatsApp open the chat, tap the menu or contact name, choose Export chat, then Include media. Save the .zip file and upload it here.</p></details>
+<details><summary>Is my chat uploaded anywhere?</summary><p>No. The file is processed inside your browser and never sent to a server.</p></details>
+<details><summary>The page freezes with a big zip. What can I do?</summary><p>Large zips use a lot of memory. Try a desktop browser, or export fewer media files.</p></details>
+<details><summary>Voice notes do not play on my iPhone.</summary><p>Voice notes use the .opus format, which some Safari versions cannot play. Open the page in Chrome or Firefox.</p></details>
+<details><summary>How do I pay and activate a plan?</summary><p>Open Billing, choose a plan, pay with JazzCash or Easypaisa and send the transaction ID on WhatsApp. Your plan activates on your account after the payment is verified.</p></details>
+<details><summary>I paid but my plan is not active.</summary><p>Payments are checked by hand. Send your transaction ID and name on WhatsApp support and we will sort it out.</p></details></div></section>
+<section id="account" class="view page in" hidden>
+<h2>Your account</h2><div class="cols"><div class="card" id="signin"><h3>Sign in</h3><p>Continue with Google, or get a one-time code by email.</p><div class="btns"><button id="gbtn">Continue with Google</button></div><label for="aid">Email</label><input type="text" id="aid" placeholder="you@example.com" autocomplete="email"><div class="btns"><button class="alt" id="sendotp">Send code</button></div><div id="otpbox" hidden><label for="acode">One-time code</label><input type="text" id="acode" inputmode="numeric" autocomplete="one-time-code"><div class="btns"><button id="verify">Verify</button></div></div><div class="status" id="aus"></div></div>
+<aside class="card" id="acct" hidden><h3>Your plan</h3><p id="acctinfo"></p><div class="btns"><button class="alt" id="signout">Sign out</button></div></aside></div>
+<div class="card" id="admin" hidden style="margin-top:16px"><h3>Admin</h3><div class="btns"><button class="alt" id="setup">Run database setup</button><button class="alt" id="refresh">Refresh payments</button></div><div id="pend"></div><div class="status" id="adm"></div></div></section>
+<section id="billing" class="view page in" hidden>
+<h2>Plans and billing</h2><p>Pay with JazzCash or Easypaisa. Submit your Transaction ID while signed in. Your plan activates once the payment is verified.</p>
+<div class="plans" id="plans"></div>
+<div class="card pay" id="pay" hidden><h3 id="paytitle"></h3>
+<ol><li>Open JazzCash or Easypaisa and send <b id="payamt"></b> to <b id="paynum"></b> <button class="alt sm" id="copy">Copy number</button></li><li>Enter the Transaction ID (TID) from the confirmation message and submit it. You must be signed in.</li></ol>
+<input type="text" id="ptid" placeholder="Transaction ID"><input type="text" id="pname" placeholder="Your name"><select id="pmeth"><option>JazzCash</option><option>Easypaisa</option></select>
+<div class="btns"><button id="pwa">Submit payment</button></div><div class="status" id="ps"></div></div>
+<div class="card" style="margin-top:16px"><h3>Your payments</h3><div id="mypay"><p class="sub">Your submitted payments appear here.</p></div></div>
+<div class="note">Payments are verified manually. Once approved, your plan activates on your account automatically.</div></section>
+<footer class="site-f"><div class="in"><div><a class="logo" href="#home"><span class="lg">🖨️</span>Chat Printer</a><p>Turn WhatsApp chats into PDF, PNG and HTML. Not affiliated with WhatsApp.</p></div><nav><a href="#home">Home</a><a href="#contact">Contact</a><a href="#billing">Billing</a></nav><p style="flex-basis:100%">© 2026 Chat Printer. WhatsApp is a trademark of Meta Platforms, Inc.</p></div></footer>
+
+<script defer src="/vendor/html2canvas.min.js"></script>
+<script defer src="/vendor/jszip.min.js"></script>
+<script defer src="/vendor/appwrite.js"></script>
+<script defer src="/app.js"></script>
+
+</body>
+</html>
