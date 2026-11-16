@@ -258,8 +258,8 @@
   $('#cta').addEventListener('click',()=>$('#tool').scrollIntoView({behavior:'smooth'}));
 
   /* ---- config: fill these in (see README.md) ---- */
-  const APPWRITE_ENDPOINT='https://cloud.appwrite.io/v1', APPWRITE_PROJECT_ID='YOUR-PROJECT-ID', FUNCTION_ID='YOUR-FUNCTION-ID';
-  const SUPPORT_EMAIL='support@yourdomain.com', PAY_NUMBER='03094034322', WA='923094034322';
+  const APPWRITE_ENDPOINT='https://sgp.cloud.appwrite.io/v1', APPWRITE_PROJECT_ID='6af9e75500246cec8feb', FUNCTION_ID='6afabae99d200249c24b';
+  const SUPPORT_EMAIL='zeeshanplus7822@gmail.com', PAY_NUMBER='03094034322', WA='923094034322';
   const MB=1048576, GB=1024*MB;
   const PLANS={
     free:{name:'Free',price:0,maxBytes:200*MB,total:2,day:0,pts:['Zip files up to 200 MB','2 conversions in total','PDF, PNG and HTML export']},
