@@ -258,7 +258,7 @@
   $('#cta').addEventListener('click',()=>$('#tool').scrollIntoView({behavior:'smooth'}));
 
   /* ---- config: fill these in (see README.md) ---- */
-  const APPWRITE_ENDPOINT='https://sgp.cloud.appwrite.io/v1', APPWRITE_PROJECT_ID='6af9e75500246cec8feb', FUNCTION_ID='6afabae99d200249c24b';
+  const APPWRITE_ENDPOINT='https://sgp.cloud.appwrite.io/v1', APPWRITE_PROJECT_ID='6af9e75500246cec8feb', FUNCTION_ID='6afa94030022a59e3ef1';
   const SUPPORT_EMAIL='zeeshanplus7822@gmail.com', PAY_NUMBER='03094034322', WA='923094034322';
   const MB=1048576, GB=1024*MB;
   const PLANS={
