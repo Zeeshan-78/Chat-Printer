@@ -1,6 +1,6 @@
 // Chat Printer backend (Appwrite Function). Every plan, quota and payment rule lives here, on the server.
 // Visitors never get direct access to the database; they can only call the actions below.
-import { Client, TablesDB, Query, ID, TablesDBIndexType } from 'node-appwrite';
+import { Client, TablesDB, Users, Query, ID, TablesDBIndexType } from 'node-appwrite';
 import { createHash } from 'node:crypto';
 
 const MB = 1048576;
@@ -11,6 +11,8 @@ const PLANS = {
 };
 const T = { subs: 'subscriptions', daily: 'daily_usage', pay: 'payments' };
 const METHODS = ['JazzCash', 'Easypaisa'];
+const PRICES = { pro: 450, ultra: 750 };
+const NOPE = { ok: false, reason: 'Not allowed.' };
 const DB = () => process.env.DATABASE_ID || 'chatprinter';
 const code = (e) => (e && (e.code || e.status)) || 0;
 // Day counter runs on Pakistan time (UTC+5), so "next day" starts at midnight in Pakistan.
@@ -73,7 +75,7 @@ async function begin(db, uid, size) {
       return { ok: false, reason: 'Daily limit of ' + P.day + ' reached. It renews tomorrow, or upgrade to Ultra Pro.' };
     }
   }
-  return { ok: true, plan: eff };
+  return { ok: true, plan: eff, media: eff !== 'free' };
 }
 
 async function submit(db, uid, b) {
@@ -99,11 +101,6 @@ async function myPayments(db, uid) {
   return { ok: true, rows: r.rows.map((x) => ({ plan: x.plan, tid: x.tid, status: x.status })) };
 }
 
-async function adminPending(db) {
-  const r = await db.listRows({ databaseId: DB(), tableId: T.pay, queries: [Query.equal('status', ['pending']), Query.orderAsc('$createdAt'), Query.limit(50)] });
-  return { ok: true, rows: r.rows.map((x) => ({ id: x.$id, plan: x.plan, method: x.method, tid: x.tid, name: x.name })) };
-}
-
 async function adminDecide(db, b) {
   const id = String(b.id || '');
   const p = await db.getRow({ databaseId: DB(), tableId: T.pay, rowId: id });
@@ -124,6 +121,64 @@ async function adminDecide(db, b) {
   return { ok: false, reason: 'Unknown decision.' };
 }
 
+async function adminPayments(db, b) {
+  const st = String(b.status || 'pending');
+  const qs = [Query.orderDesc('$createdAt'), Query.limit(50)];
+  if (['pending', 'approved', 'rejected'].includes(st)) qs.unshift(Query.equal('status', [st]));
+  const r = await db.listRows({ databaseId: DB(), tableId: T.pay, queries: qs });
+  return { ok: true, rows: r.rows.map((x) => ({ id: x.$id, plan: x.plan, method: x.method, tid: x.tid, name: x.name, status: x.status, userId: x.userId, created: x.$createdAt })) };
+}
+
+async function adminStats(db, users) {
+  const cnt = async (qs) => (await db.listRows({ databaseId: DB(), tableId: T.pay, queries: [...qs, Query.limit(1)] })).total;
+  const paid = (p) => cnt([Query.equal('status', ['approved']), Query.equal('plan', [p])]);
+  const [pending, approved, pro, ultra] = await Promise.all([cnt([Query.equal('status', ['pending'])]), cnt([Query.equal('status', ['approved'])]), paid('pro'), paid('ultra')]);
+  const act = await db.listRows({ databaseId: DB(), tableId: T.subs, queries: [Query.greaterThan('expiresAt', new Date().toISOString()), Query.limit(1)] });
+  let total = null;
+  try {
+    total = (await users.list({ queries: [Query.limit(1)] })).total;
+  } catch (e) {
+    total = null; // needs the users.read scope
+  }
+  return { ok: true, users: total, active: act.total, pending, approved, revenue: pro * PRICES.pro + ultra * PRICES.ultra };
+}
+
+async function adminUsers(db, users, b) {
+  const limit = 25;
+  const offset = Math.max(0, Number(b.offset) || 0);
+  const search = b.search ? String(b.search).slice(0, 60) : undefined;
+  let list;
+  try {
+    list = await users.list({ queries: [Query.limit(limit), Query.offset(offset), Query.orderDesc('$createdAt')], search });
+  } catch (e) {
+    return { ok: false, reason: 'Could not list users. Give the function the users.read scope and redeploy.' };
+  }
+  const subs = new Map();
+  if (list.users.length) {
+    const r = await db.listRows({ databaseId: DB(), tableId: T.subs, queries: [Query.equal('$id', list.users.map((u) => u.$id)), Query.limit(limit)] });
+    r.rows.forEach((x) => subs.set(x.$id, x));
+  }
+  return {
+    ok: true,
+    total: list.total,
+    rows: list.users.map((u) => {
+      const s = subs.get(u.$id);
+      return { id: u.$id, name: u.name || '', email: u.email || '', phone: (u.prefs && u.prefs.phone) || '', verified: !!u.emailVerification, created: u.registration, plan: s ? effective(s) : 'free', expires_at: (s && s.expiresAt) || null, total_used: s ? s.totalUsed || 0 : 0 };
+    }),
+  };
+}
+
+async function adminSetPlan(db, b) {
+  const uid = String(b.userId || '');
+  const plan = String(b.plan || '');
+  const days = Math.min(3650, Math.max(1, Number(b.days) || 30));
+  if (!uid || !['free', 'pro', 'ultra'].includes(plan)) return { ok: false, reason: 'Check the details and try again.' };
+  await getSub(db, uid);
+  const data = plan === 'free' ? { plan: 'free', expiresAt: null } : { plan, expiresAt: new Date(Date.now() + days * 864e5).toISOString() };
+  await db.updateRow({ databaseId: DB(), tableId: T.subs, rowId: uid, data });
+  return { ok: true };
+}
+
 // Creates the database, tables, columns and indexes. Safe to run again: existing things are skipped.
 async function setup(db) {
   const log = [];
@@ -138,7 +193,15 @@ async function setup(db) {
   };
   const str = (t, key, size, required, xdefault) => run(t + '.' + key, () => db.createStringColumn({ databaseId: d, tableId: t, key, size, required, xdefault }));
   const int = (t, key) => run(t + '.' + key, () => db.createIntegerColumn({ databaseId: d, tableId: t, key, required: false, xdefault: 0 }));
-  await run('database', () => db.create({ databaseId: d, name: 'Chat Printer' }));
+  // Appwrite's free plan allows one database and then refuses even to say "already exists",
+  // so look first and only create when it is really missing.
+  try {
+    await db.get({ databaseId: d });
+    log.push('database: already exists');
+  } catch (e) {
+    if (code(e) === 404) await run('database', () => db.create({ databaseId: d, name: 'Chat Printer' }));
+    else log.push('database: NOT READY - ' + (e && e.message ? e.message : e));
+  }
   for (const [id, name] of [[T.subs, 'Subscriptions'], [T.daily, 'Daily usage'], [T.pay, 'Payments']])
     await run('table ' + id, () => db.createTable({ databaseId: d, tableId: id, name, permissions: [], rowSecurity: false }));
   await str(T.subs, 'userId', 36, true);
@@ -154,15 +217,17 @@ async function setup(db) {
   await str(T.pay, 'tid', 30, true);
   await str(T.pay, 'name', 80, true);
   await str(T.pay, 'status', 12, false, 'pending');
-  const idx = (key, type, col) => run('index ' + key, () => db.createIndex({ databaseId: d, tableId: T.pay, key, type, columns: [col] }));
-  await idx('tid_unique', TablesDBIndexType.Unique, 'tid');
-  await idx('user_idx', TablesDBIndexType.Key, 'userId');
-  await idx('status_idx', TablesDBIndexType.Key, 'status');
+  const idx = (table, key, type, col) => run('index ' + key, () => db.createIndex({ databaseId: d, tableId: table, key, type, columns: [col] }));
+  await idx(T.pay, 'tid_unique', TablesDBIndexType.Unique, 'tid');
+  await idx(T.pay, 'user_idx', TablesDBIndexType.Key, 'userId');
+  await idx(T.pay, 'status_idx', TablesDBIndexType.Key, 'status');
+  await idx(T.pay, 'plan_idx', TablesDBIndexType.Key, 'plan');
+  await idx(T.subs, 'exp_idx', TablesDBIndexType.Key, 'expiresAt');
   const ready = log.every((l) => !l.includes('NOT READY'));
   return { ok: true, ready, log, note: ready ? 'Setup complete.' : 'Some items are still being created. Wait about a minute and press the button again.' };
 }
 
-export const makeHandler = (db) => async ({ req, res, error }) => {
+export const makeHandler = (db, users) => async ({ req, res, error }) => {
   const uid = req.headers['x-appwrite-user-id'];
   if (!uid) return res.json({ ok: false, reason: 'Please sign in first.' });
   let b = {};
@@ -185,7 +250,11 @@ export const makeHandler = (db) => async ({ req, res, error }) => {
       case 'begin': return res.json(await begin(db, uid, Number(b.size)));
       case 'submit_payment': return res.json(await submit(db, uid, b));
       case 'my_payments': return res.json(await myPayments(db, uid));
-      case 'admin_pending': return res.json(admin ? await adminPending(db) : { ok: false, reason: 'Not allowed.' });
+      case 'admin_pending': return res.json(admin ? await adminPayments(db, { status: 'pending' }) : NOPE);
+      case 'admin_payments': return res.json(admin ? await adminPayments(db, b) : NOPE);
+      case 'admin_stats': return res.json(admin ? await adminStats(db, users) : NOPE);
+      case 'admin_users': return res.json(admin ? await adminUsers(db, users, b) : NOPE);
+      case 'admin_set_plan': return res.json(admin ? await adminSetPlan(db, b) : NOPE);
       case 'admin_decide': return res.json(admin ? await adminDecide(db, b) : { ok: false, reason: 'Not allowed.' });
       case 'admin_setup': return res.json(admin ? await setup(db) : { ok: false, reason: 'Not allowed.' });
       default: return res.json({ ok: false, reason: 'Unknown action.' });
@@ -202,5 +271,5 @@ export default async (ctx) => {
     .setEndpoint(process.env.APPWRITE_FUNCTION_API_ENDPOINT)
     .setProject(process.env.APPWRITE_FUNCTION_PROJECT_ID)
     .setKey(process.env.API_KEY || ctx.req.headers['x-appwrite-key']);
-  return makeHandler(new TablesDB(client))(ctx);
+  return makeHandler(new TablesDB(client), new Users(client))(ctx);
 };
