@@ -2,7 +2,8 @@
 
 Turn exported WhatsApp chats into a **PDF**, **PNG images** or **one self-contained HTML file** that keeps photos, voice notes and videos working. The chat is converted inside the visitor's browser and is never uploaded to a server.
 
-> Not affiliated with WhatsApp or Meta Platforms, Inc.
+> Not affiliated with WhatsApp or Meta Platforms, Inc.</br>
+> Created by Zeeshan Ali
 
 ## Features
 
@@ -13,16 +14,18 @@ Turn exported WhatsApp chats into a **PDF**, **PNG images** or **one self-contai
 - WhatsApp text formatting (bold, italic, strikethrough, monospace), clickable links, large emoji, "edited" labels
 - Deleted-message markers for both people, and restoring their text from an older export
 - Search and filter, chat info box, hide system messages and "Media omitted"
-- Accounts with Google or an email one-time code; plans enforced on the server
-- Manual billing through JazzCash and Easypaisa, approved by the owner in an admin box
+- Date range filter: export only the messages between two dates
+- Accounts: email and password (new accounts confirm the email with a code), Google, Facebook and GitHub; profile with photo and phone number
+- User panel (profile, password, plan and usage, payments) and an admin panel (stats, payments, users, database)
+- Plans enforced on the server; manual billing through JazzCash and Easypaisa
 
 ## Plans
 
-| Plan | Price | Largest zip | Conversions |
-|---|---|---|---|
-| Free | PKR 0 | 200 MB | 2 in total |
-| Pro | PKR 450 / month | 1 GB | 20 per day, renewed the next day |
-| Ultra Pro | PKR 750 / month | no limit | no limit |
+| Plan | Price | Media | Largest zip | Conversions |
+|---|---|---|---|---|
+| Free | PKR 0 | text only | 200 MB | 2 in total |
+| Pro | PKR 450 / month | photos, voice notes, videos | 1 GB | 20 per day, renewed the next day |
+| Ultra Pro | PKR 750 / month | photos, voice notes, videos | no limit | no limit |
 
 The day counter follows Pakistan time (UTC+5).
 
@@ -44,18 +47,12 @@ Conversion itself happens locally in the browser. The server only decides whethe
 
 ```
 public/                      the website (static, no build step)
-  index.html  app.js  style.css
+  index.html  app.js  config.js  style.css
   vendor/                    self-hosted libraries (JSZip, html2canvas, Appwrite Web SDK)
 appwrite/functions/api/      server function (Node.js): quotas, payments, admin actions
 docs/SETUP.md                step-by-step setup guide
 vercel.json                  deployment settings and security headers
 ```
-
-## Getting started
-
-Follow [docs/SETUP.md](docs/SETUP.md). In short: create an Appwrite project, deploy the function, put three IDs at the top of `public/app.js`, deploy the repository on Vercel, then press "Run database setup" in the admin box.
-
-To look at the site locally: `npx serve public`.
 
 ## Security notes
 
@@ -67,7 +64,3 @@ To look at the site locally: `npx serve public`.
 ## Third-party code
 
 JSZip, html2canvas and the Appwrite Web SDK are bundled under `public/vendor/` and keep their own licenses.
-
-## License
-
-Add a license before making the repository public (for example MIT). Until then, all rights are reserved.
