@@ -50,8 +50,10 @@
       const fs=Object.values(z.files).filter(e=>!e.dir&&!/__MACOSX|(^|\/)\._/.test(e.name));
       const tx=fs.find(e=>/\.txt$/i.test(e.name));
       if(!tx){status('No chat .txt file found in the zip.');return;}
-      fs.forEach(e=>{if(e!==tx)zipMap.set(e.name.split('/').pop().toLowerCase(),e);});
+      let skipped=0;
+      fs.forEach(e=>{if(e===tx)return;if(cpMedia)zipMap.set(e.name.split('/').pop().toLowerCase(),e);else skipped++;});
       load(await tx.async('string'),tx.name.split('/').pop());
+      if(skipped)status($('#status').textContent+' Photos, voice notes and videos are not included on the Free plan.');
     }catch(e){status('Zip error: '+e.message);}
   }
   function autoTitle(){
@@ -139,11 +141,33 @@
     return out;
   }
 
+  function isoOf(s,fmt){
+    const m=String(s).trim().match(/^(\d{1,4})[\/.\-](\d{1,2})[\/.\-](\d{1,4})$/);
+    if(!m)return '';
+    let y,mo,d;
+    if(m[1].length===4){y=+m[1];mo=+m[2];d=+m[3];}
+    else{const a=+m[1],b=+m[2],c=+m[3];y=c<100?2000+c:c;if(fmt==='mdy'){mo=a;d=b;}else{d=a;mo=b;}}
+    if(mo<1||mo>12||d<1||d>31)return '';
+    return y+'-'+String(mo).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+  }
+  function guessFmt(){
+    let dm=0,md=0;
+    new Set(messages.map(m=>m.date)).forEach(s=>{const x=String(s).trim().match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-]\d{2,4}$/);if(x){if(+x[1]>12)dm=1;if(+x[2]>12)md=1;}});
+    return md&&!dm?'mdy':'dmy';
+  }
+  function dateSetup(){
+    const pick=$('#dfmt').value,fmt=pick==='auto'?guessFmt():pick;
+    messages.forEach(m=>{m.iso=isoOf(m.date,fmt);});
+    const isos=messages.map(m=>m.iso).filter(Boolean).sort();
+    if(isos.length){$('#dfrom').min=$('#dto').min=isos[0];$('#dfrom').max=$('#dto').max=isos[isos.length-1];}
+  }
   function visible(){
     const showSys=$('#showSys').checked, hideMedia=$('#hideMedia').checked;
     return messages.filter(m=>{
       if(m.system && !showSys) return false;
       if(!$('#showDel').checked&&isDel(m))return false;
+      const df=$('#dfrom').value,dt=$('#dto').value;
+      if((df||dt)&&m.iso){if(df&&m.iso<df)return false;if(dt&&m.iso>dt)return false;}
       const q=$('#q').value.trim().toLowerCase();if(q&&!(m.text+' '+(m.sender||'')).toLowerCase().includes(q))return false;
       if(!m.system && hideMedia){const t=m.text.trim(),mi=zipMap.size&&mediaInfo(t);if(MEDIA.test(t)||(mi&&!mi.cap))return false;}
       return true;
@@ -196,7 +220,10 @@
   function render(){
     const stage=$('#stage');
     if(!messages.length){return;}
-    io.disconnect();chatInfo();stage.replaceChildren(buildChat(visible(),false));
+    io.disconnect();chatInfo();
+    const list=visible();$('#shown').textContent=list.length===messages.length?'':'Showing '+list.length+' of '+messages.length+' messages.';
+    if(!list.length){stage.replaceChildren(el('div','empty','No messages match your filters.'));return;}
+    stage.replaceChildren(buildChat(list,false));
   }
 
   function status(t){$('#status').textContent=t;}
@@ -215,7 +242,7 @@
     senders.forEach(s=>{const o=document.createElement('option');o.value=s;o.textContent=s+' ('+counts[s]+')';sel.appendChild(o);});
     sel.disabled=false;
     titleEdited=false; fallbackTitle=(name||'Chat').replace(/^WhatsApp Chat (with|-) /i,'').replace(/\.txt$/i,'');
-    autoTitle();
+    autoTitle();dateSetup();
     $('#pdf').disabled=$('#png').disabled=$('#html').disabled=false;
     status(messages.length+' messages, '+senders.length+' people, '+zipMap.size+' media. Pick your name under "My name".');
     render();
@@ -251,47 +278,86 @@
     status('');window.print();
   });
   window.addEventListener('afterprint',render);
+  $('#dfrom').addEventListener('change',render);$('#dto').addEventListener('change',render);
+  $('#dfmt').addEventListener('change',()=>{if(messages.length){dateSetup();render();}});
+  $('#dclear').addEventListener('click',()=>{$('#dfrom').value=$('#dto').value='';render();});
   $('#showDel').addEventListener('change',render);
   $('#addold').addEventListener('click',()=>$('#file2').click());
   $('#file2').addEventListener('change',e=>{const f=e.target.files[0];e.target.value='';if(f)mergeOld(f);});
   let qt;$('#q').addEventListener('input',()=>{clearTimeout(qt);qt=setTimeout(render,250);});
-  $('#cta').addEventListener('click',()=>$('#tool').scrollIntoView({behavior:'smooth'}));
 
-  /* ---- config: fill these in (see README.md) ---- */
-  const APPWRITE_ENDPOINT='https://sgp.cloud.appwrite.io/v1', APPWRITE_PROJECT_ID='6af9e75500246cec8feb', FUNCTION_ID='6afa94030022a59e3ef1';
-  const SUPPORT_EMAIL='zeeshanplus7822@gmail.com', PAY_NUMBER='03094034322', WA='923094034322';
+  /* ---- settings come from config.js (public values) ---- */
+  const CFG=window.CHATPRINTER||{};
+  const APPWRITE_ENDPOINT=CFG.endpoint||'https://cloud.appwrite.io/v1', APPWRITE_PROJECT_ID=CFG.projectId||'YOUR-PROJECT-ID', FUNCTION_ID=CFG.functionId||'YOUR-FUNCTION-ID';
+  const SUPPORT_EMAIL=CFG.supportEmail||'support@yourdomain.com', PAY_NUMBER=CFG.payNumber||'', WA=CFG.whatsapp||'';
   const MB=1048576, GB=1024*MB;
   const PLANS={
-    free:{name:'Free',price:0,maxBytes:200*MB,total:2,day:0,pts:['Zip files up to 200 MB','2 conversions in total','PDF, PNG and HTML export']},
-    pro:{name:'Pro',price:450,maxBytes:GB,total:0,day:20,hot:1,pts:['Zip files up to 1 GB','20 conversions per day, renewed the next day','Everything in Free']},
-    ultra:{name:'Ultra Pro',price:750,maxBytes:0,total:0,day:0,pts:['No file size limit','No daily limit','Everything in Pro']}
+    free:{name:'Free',price:0,maxBytes:200*MB,total:2,day:0,media:false,pts:['2 conversions in total','Text only: no photos, voice notes or videos','Zip files up to 200 MB','PDF, PNG and HTML export']},
+    pro:{name:'Pro',price:450,maxBytes:GB,total:0,day:20,media:true,hot:1,pts:['Photos, voice notes and videos included','20 conversions per day, renewed the next day','Zip files up to 1 GB','Everything in Free']},
+    ultra:{name:'Ultra Pro',price:750,maxBytes:0,total:0,day:0,media:true,pts:['Photos, voice notes and videos included','No file size limit','No daily limit','Everything in Pro']}
   };
   const AW=window.Appwrite, awOk=!!AW&&!APPWRITE_PROJECT_ID.startsWith('YOUR-')&&!FUNCTION_ID.startsWith('YOUR-');
   const client=awOk?new AW.Client().setEndpoint(APPWRITE_ENDPOINT).setProject(APPWRITE_PROJECT_ID):null;
   const account=client&&new AW.Account(client), fns=client&&new AW.Functions(client);
-  let user=null,st=null,cpPass=null,otpUser=null,cpErr='';
+  let user=null,st=null,cpPass=null,otpUser=null,cpErr='',cpMedia=false,needPw=false,loading=true,pendScroll=null,resetCtx=null,aTab='ov',uOff=0;
   const cpFmt=n=>n>=GB?(n/GB).toFixed(1)+' GB':Math.round(n/MB)+' MB';
-  const amsg=t=>{$('#aus').textContent=t;};
+  const amsg=t=>{$('#aus').textContent=t;}, say=(s,t)=>{$(s).textContent=t;};
+  const initials=n=>((n||'?').trim().split(/\s+/).map(x=>x[0]).join('').slice(0,2)||'?').toUpperCase();
+  const fmtDate=iso=>{try{return new Date(iso).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'});}catch(e){return '';}};
+  const shortDate=iso=>{try{return new Date(iso).toLocaleDateString(undefined,{day:'numeric',month:'short'});}catch(e){return '';}};
+  function paintAv(node,u){
+    node.replaceChildren();
+    const a=u&&u.prefs&&u.prefs.avatar;
+    if(a&&/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+\/=]+$/.test(a)){const i=document.createElement('img');i.src=a;i.alt='';node.appendChild(i);}
+    else node.textContent=u?initials(u.name||u.email):'?';
+  }
   async function api(action,data){
     try{
       const ex=await fns.createExecution({functionId:FUNCTION_ID,body:JSON.stringify(Object.assign({action},data||{})),async:false,xpath:'/',method:'POST',headers:{'content-type':'application/json'}});
       return JSON.parse(ex.responseBody||'{}');
     }catch(e){return{ok:false,reason:'Could not reach the server.'};}
   }
+  function go(view,scrollId){pendScroll=scrollId||null;if((location.hash||'#home')==='#'+view)route();else location.hash=view;}
   async function loadPay(){
     const r=await api('my_payments');
     if(!r.ok||!r.rows.length)return;
-    $('#mypay').replaceChildren(...r.rows.map(x=>el('div','status',x.plan+' \u00b7 '+x.tid+' \u00b7 '+x.status)));
+    $('#mypay').replaceChildren(...r.rows.map(x=>{const d=el('div','arow'),m=el('div','grow',x.plan+' \u00b7 '+x.tid);d.append(m,el('span','chip '+x.status,x.status));return d;}));
   }
-  async function loadAdmin(){
-    const r=await api('admin_pending'),box=$('#pend');
-    if(!r.ok){$('#adm').textContent=r.reason||'';return;}
-    if(!r.rows.length){box.replaceChildren(el('div','status','No pending payments.'));return;}
-    box.replaceChildren(...r.rows.map(x=>{
-      const row=el('div','status',x.plan+' \u00b7 '+x.method+' \u00b7 TID '+x.tid+' \u00b7 '+x.name+' '),a=el('button','sm','Approve'),b=el('button','alt sm','Reject');
-      const act=d=>async()=>{const z=await api('admin_decide',{id:x.id,decision:d});$('#adm').textContent=z.ok?'Done.':(z.reason||'Failed.');loadAdmin();};
-      a.addEventListener('click',act('approve'));b.addEventListener('click',act('reject'));row.append(a,b);return row;
-    }));
+  function cpBar(){
+    const signed=!!user;let t,P=null;
+    $('#navtxt').textContent=signed?(user.name||'Account').split(' ')[0]:'Sign in';
+    paintAv($('#hav'),user);
+    $('#navadmin').hidden=!(st&&st.is_admin);
+    $('#authbox').hidden=signed;$('#dash').hidden=!signed;
+    if(!account)t='Sign-in is not configured yet.';
+    else if(!user)t='Sign in to use the converter.';
+    else if(!st)t=cpErr||'Loading your plan...';
+    else{
+      P=PLANS[st.plan];let left='Unlimited conversions';
+      if(P.total)left=Math.max(0,P.total-st.total_used)+' of '+P.total+' conversions left';
+      else if(P.day)left=Math.max(0,P.day-st.day_used)+' of '+P.day+' left today';
+      t=P.name+' plan \u00b7 '+left+' \u00b7 '+(P.media?'photos, voice notes and videos included':'text only')+' \u00b7 '+(P.maxBytes?'max '+cpFmt(P.maxBytes):'no size limit')+(st.plan==='free'?'':' \u00b7 valid until '+fmtDate(st.expires_at));
+    }
+    $('#plantext').textContent=t;
+    if(!signed)return;
+    paintAv($('#avbig'),user);paintAv($('#avprev'),user);
+    $('#pname2').textContent=user.name||'Add your name';$('#pemail').textContent=user.email||'';
+    const b=$('#pbadge');b.textContent=P?P.name+' plan':'...';b.className='badge '+(st?st.plan:'');
+    $('#pexp').textContent=st&&st.plan!=='free'?'Valid until '+fmtDate(st.expires_at):'';
+    $('#finish').hidden=!needPw;
+    $('#pw_oldrow').hidden=!user.passwordUpdate;$('#pw_h').textContent=user.passwordUpdate?'Change password':'Set a password';
+    if(document.activeElement!==$('#pf_name'))$('#pf_name').value=user.name||'';
+    if(document.activeElement!==$('#pf_phone'))$('#pf_phone').value=(user.prefs&&user.prefs.phone)||'';
+    $('#pf_email').value=user.email||'';
+    const u=$('#usage');u.replaceChildren();
+    if(P){
+      if(P.total||P.day){
+        const used=P.total?st.total_used:st.day_used,lim=P.total||P.day,m=el('div','meter'),i=document.createElement('i');
+        i.style.width=Math.min(100,used/lim*100)+'%';m.appendChild(i);
+        u.append(el('div','sub',(P.total?'Conversions used: ':'Used today: ')+used+' of '+lim),m);
+      }else u.appendChild(el('div','sub','Unlimited conversions'));
+      [['Plan',P.name],['Media',P.media?'Included':'Not included (text only)'],['Largest file',P.maxBytes?cpFmt(P.maxBytes):'No limit'],['Valid until',st.plan==='free'?'Does not expire':fmtDate(st.expires_at)]].forEach(([a,c])=>{const r=el('div','fact');r.append(el('span',null,a),el('span',null,c));u.appendChild(r);});
+    }
   }
   async function cpRefresh(){
     user=null;st=null;
@@ -300,79 +366,207 @@
     if(user){
       st=await api('status');
       if(!st.ok){cpErr=st.reason||'Could not load your plan.';st=null;}else cpErr='';
-      cpBar();loadPay();if(st&&st.is_admin){loadAdmin();if(st.setup_needed)$('#adm').textContent='The database is not set up yet. Press "Run database setup".';}
+      cpBar();loadPay();
+      if(st&&st.is_admin){atab(aTab);if(st.setup_needed)say('#adm','The database is not set up yet. Open the Database tab and press "Run database setup".');}
     }
-  }
-  function cpBar(){
-    $('#navacct').textContent=user?'Account':'Sign in';
-    $('#signin').hidden=!!user;$('#acct').hidden=!user;$('#admin').hidden=!(st&&st.is_admin);
-    let t;
-    if(!account)t='Sign-in is not configured yet.';
-    else if(!user)t='Sign in to use the converter.';
-    else if(!st)t=cpErr||'Loading your plan...';
-    else{
-      const P=PLANS[st.plan];let left='Unlimited conversions';
-      if(P.total)left=Math.max(0,P.total-st.total_used)+' of '+P.total+' conversions left';
-      else if(P.day)left=Math.max(0,P.day-st.day_used)+' of '+P.day+' left today';
-      t=P.name+' plan \u00b7 '+left+' \u00b7 '+(P.maxBytes?'max '+cpFmt(P.maxBytes):'no size limit')+(st.plan==='free'?'':' \u00b7 valid until '+new Date(st.expires_at).toLocaleDateString());
-    }
-    $('#plantext').textContent=t;
-    $('#acctinfo').textContent=user?(user.email||'')+' \u2014 '+t+' \u2014 User ID: '+user.$id:'';
+    loading=false;route();
   }
   async function cpGate(f){
     if(!account){status('Sign-in is not configured yet.');return false;}
     if(!user){status('Please sign in first.');location.hash='account';return false;}
+    if(needPw){status('Please finish your account first: set a password on the Account page.');location.hash='account';return false;}
     const r=await api('begin',{size:f.size});
+    cpMedia=!!r.media;
     cpRefresh();
     if(!r.ok){status(r.reason||'Could not check your plan. Try again.');return false;}
     return true;
   }
-  $('#gbtn').addEventListener('click',()=>{
+  function showPane(n){
+    ['paneIn','paneUp','paneForgot','paneReset'].forEach(x=>{$('#'+x).hidden=x!==n;});
+    $('#tabin').classList.toggle('on',n!=='paneUp');$('#tabup').classList.toggle('on',n==='paneUp');amsg('');
+  }
+  $('#tabin').addEventListener('click',()=>showPane('paneIn'));
+  $('#tabup').addEventListener('click',()=>showPane('paneUp'));
+  $('#backin').addEventListener('click',()=>showPane('paneIn'));
+  $('#goforgot').addEventListener('click',e=>{e.preventDefault();showPane('paneForgot');});
+  $('#doin').addEventListener('click',async()=>{
+    const e=$('#li_email').value.trim(),p=$('#li_pass').value;
     if(!account)return amsg('Sign-in is not configured yet.');
-    account.createOAuth2Token({provider:AW.OAuthProvider.Google,success:location.origin+'/',failure:location.origin+'/'});
+    if(!/^\S+@\S+\.\S+$/.test(e)||!p)return amsg('Enter your email and password.');
+    try{await account.createEmailPasswordSession({email:e,password:p});amsg('');$('#li_pass').value='';needPw=false;await cpRefresh();location.hash='home';}
+    catch(err){amsg(err&&err.code===401?'Wrong email or password. If you signed up with a code, use "Forgot password?" to set one.':'Could not sign in: '+((err&&err.message)||'network error'));}
   });
   $('#sendotp').addEventListener('click',async()=>{
-    const v=$('#aid').value.trim();
+    const v=$('#su_email').value.trim();
     if(!account)return amsg('Sign-in is not configured yet.');
     if(!/^\S+@\S+\.\S+$/.test(v))return amsg('Enter a valid email address.');
     try{
       const t=await account.createEmailToken({userId:AW.ID.unique(),email:v});
       otpUser=t.userId;$('#otpbox').hidden=false;amsg('Code sent. Check your email (and the spam folder).');
-    }catch(e){amsg('Could not send the code: '+(e&&e.message?e.message:'network error'));}
+    }catch(e){amsg('Could not send the code: '+((e&&e.message)||'network error'));}
   });
   $('#verify').addEventListener('click',async()=>{
     const t=$('#acode').value.trim();
     if(!account||!otpUser||!t)return;
     try{
       await account.createSession({userId:otpUser,secret:t});
-      amsg('');otpUser=null;$('#otpbox').hidden=true;await cpRefresh();location.hash='home';
+      amsg('');otpUser=null;$('#otpbox').hidden=true;$('#acode').value='';
+      await cpRefresh();needPw=!!user&&!user.passwordUpdate;cpBar();location.hash='account';
     }catch(e){amsg('Invalid or expired code.');}
   });
-  $('#signout').addEventListener('click',async()=>{try{if(account)await account.deleteSession({sessionId:'current'});}catch(e){}cpRefresh();});
-  $('#setup').addEventListener('click',async()=>{
-    $('#adm').textContent='Working...';
-    const r=await api('admin_setup');
-    $('#adm').textContent=r.ok?(r.note+' '+r.log.filter(l=>!l.includes('already')).join(' | ')):(r.reason||'Failed.');
+  $('#dofp').addEventListener('click',async()=>{
+    const e=$('#fp_email').value.trim();
+    if(!account)return amsg('Sign-in is not configured yet.');
+    if(!/^\S+@\S+\.\S+$/.test(e))return amsg('Enter a valid email address.');
+    try{await account.createRecovery({email:e,url:location.origin+'/?mode=reset'});}catch(err){}
+    amsg('If an account exists for this email, a reset link is on its way. Check your spam folder too.');
   });
-  $('#refresh').addEventListener('click',loadAdmin);
-  async function oauthReturn(){
-    const q=new URLSearchParams(location.search),u=q.get('userId'),s=q.get('secret');
-    if(account&&u&&s){try{await account.createSession({userId:u,secret:s});}catch(e){}history.replaceState(null,'',location.pathname+location.hash);}
-  }
-  oauthReturn().then(cpRefresh);
-  let sel='';
-  $('#plans').replaceChildren(...Object.entries(PLANS).map(([id,p])=>{
-    const c=el('div','plan'+(p.hot?' hot':'')),pr=el('div','price','PKR '+p.price),ul=el('ul');
-    pr.appendChild(el('small',null,id==='free'?' forever':' / month'));
-    p.pts.forEach(t=>ul.appendChild(el('li',null,t)));
-    const b=el('button',id==='free'?'alt':null,id==='free'?'Start free':'Choose '+p.name);
-    b.addEventListener('click',()=>{
-      if(id==='free'){location.hash='home';return;}
-      sel=id;$('#paytitle').textContent=p.name+' \u2014 PKR '+p.price+' / month';$('#payamt').textContent='PKR '+p.price;$('#paynum').textContent=PAY_NUMBER;
-      $('#pay').hidden=false;$('#pay').scrollIntoView({behavior:'smooth'});
+  $('#dors').addEventListener('click',async()=>{
+    const p=$('#rs_pw').value,p2=$('#rs_pw2').value;
+    if(p.length<8)return amsg('Use at least 8 characters.');
+    if(p!==p2)return amsg('The two passwords do not match.');
+    if(!resetCtx)return amsg('This reset link is not valid. Request a new one.');
+    try{await account.updateRecovery({userId:resetCtx.uid,secret:resetCtx.sec,password:p});resetCtx=null;$('#rs_pw').value=$('#rs_pw2').value='';showPane('paneIn');amsg('Password updated. Sign in with your new password.');}
+    catch(e){amsg('This link has expired or is invalid. Request a new one.');}
+  });
+  const social=p=>()=>{if(!account)return amsg('Sign-in is not configured yet.');account.createOAuth2Token({provider:AW.OAuthProvider[p],success:location.origin+'/',failure:location.origin+'/?auth=failed'});};
+  $('#gbtn').addEventListener('click',social('Google'));
+  $('#fbtn').addEventListener('click',social('Facebook'));
+  $('#hbtn').addEventListener('click',social('Github'));
+  $('#signout').addEventListener('click',async()=>{try{if(account)await account.deleteSession({sessionId:'current'});}catch(e){}needPw=false;await cpRefresh();location.hash='home';});
+  $('#signoutall').addEventListener('click',async()=>{try{if(account)await account.deleteSessions();}catch(e){}needPw=false;await cpRefresh();location.hash='home';});
+  $('#pf_save').addEventListener('click',async()=>{
+    const n=$('#pf_name').value.trim(),ph=$('#pf_phone').value.trim().replace(/[\s-]/g,'');
+    if(!user)return;
+    if(!n)return say('#pf_s','Enter your name.');
+    if(ph&&!/^\+?\d{10,15}$/.test(ph))return say('#pf_s','Phone must be 10 to 15 digits, for example +923001234567.');
+    try{
+      if(n!==user.name)await account.updateName({name:n});
+      await account.updatePrefs({prefs:Object.assign({},user.prefs||{},{phone:ph})});
+      say('#pf_s','Saved.');await cpRefresh();
+    }catch(e){say('#pf_s','Could not save: '+((e&&e.message)||'error'));}
+  });
+  $('#pw_save').addEventListener('click',async()=>{
+    const o=$('#pw_old').value,n=$('#pw_new').value,n2=$('#pw_new2').value;
+    if(!user)return;
+    if(n.length<8)return say('#pw_s','Use at least 8 characters.');
+    if(n!==n2)return say('#pw_s','The two passwords do not match.');
+    if(user.passwordUpdate&&!o)return say('#pw_s','Enter your current password.');
+    try{
+      await account.updatePassword(user.passwordUpdate?{password:n,oldPassword:o}:{password:n});
+      needPw=false;$('#pw_old').value=$('#pw_new').value=$('#pw_new2').value='';say('#pw_s','Password saved.');await cpRefresh();
+    }catch(e){say('#pw_s',e&&e.code===401?'The current password is wrong.':'Could not save: '+((e&&e.message)||'error'));}
+  });
+  function shrink(file){
+    return new Promise((res,rej)=>{
+      if(!/^image\//.test(file.type))return rej(new Error('Choose an image file.'));
+      const url=URL.createObjectURL(file),img=new Image();
+      img.onload=()=>{const s=Math.min(img.width,img.height),c=document.createElement('canvas');c.width=c.height=160;c.getContext('2d').drawImage(img,(img.width-s)/2,(img.height-s)/2,s,s,0,0,160,160);URL.revokeObjectURL(url);res(c.toDataURL('image/jpeg',0.82));};
+      img.onerror=()=>{URL.revokeObjectURL(url);rej(new Error('Could not read that image.'));};
+      img.src=url;
     });
-    c.append(el('h3',null,p.name),pr,ul,b);return c;
-  }));
+  }
+  $('#pf_pick').addEventListener('click',()=>$('#pf_photo').click());
+  $('#pf_photo').addEventListener('change',async e=>{
+    const f=e.target.files[0];e.target.value='';
+    if(!f||!user)return;
+    try{const d=await shrink(f);await account.updatePrefs({prefs:Object.assign({},user.prefs||{},{avatar:d})});say('#pf_s','Photo updated.');await cpRefresh();}
+    catch(err){say('#pf_s',(err&&err.message)||'Could not update the photo.');}
+  });
+  $('#pf_rm').addEventListener('click',async()=>{
+    if(!user)return;const p=Object.assign({},user.prefs||{});delete p.avatar;
+    try{await account.updatePrefs({prefs:p});say('#pf_s','Photo removed.');await cpRefresh();}catch(err){say('#pf_s','Could not remove the photo.');}
+  });
+  const PKR=n=>'PKR '+Number(n||0).toLocaleString('en-US');
+  async function loadStats(){
+    const r=await api('admin_stats');
+    if(!r.ok){say('#adm',r.reason||'');return;}
+    const items=[['Users',r.users==null?'n/a':r.users],['Active paid plans',r.active],['Pending payments',r.pending],['Approved payments',r.approved],['Estimated revenue',PKR(r.revenue)]];
+    $('#stats').replaceChildren(...items.map(([a,b])=>{const d=el('div','stat');d.append(el('b',null,String(b)),el('span',null,a));return d;}));
+    $('#statnote').textContent=(r.users==null?'The user count needs the users.read scope on the function. ':'')+'Revenue is an estimate: approved payments times the plan price.';
+  }
+  async function loadPayments(){
+    const r=await api('admin_payments',{status:$('#pfilter').value}),box=$('#pend');
+    if(!r.ok){say('#adm',r.reason||'');return;}
+    if(!r.rows.length){box.replaceChildren(el('div','sub','Nothing here.'));return;}
+    box.replaceChildren(...r.rows.map(x=>{
+      const row=el('div','arow'),main=el('div','grow');
+      main.append(el('b',null,x.name),el('small',null,x.plan+' \u00b7 '+x.method+' \u00b7 TID '+x.tid+' \u00b7 '+shortDate(x.created)));
+      row.append(main,el('span','chip '+x.status,x.status));
+      if(x.status==='pending'){
+        const a=el('button','sm','Approve'),b=el('button','alt sm','Reject');
+        const act=d=>async()=>{const z=await api('admin_decide',{id:x.id,decision:d});say('#adm',z.ok?'Done.':(z.reason||'Failed.'));loadPayments();loadStats();};
+        a.addEventListener('click',act('approve'));b.addEventListener('click',act('reject'));row.append(a,b);
+      }
+      return row;
+    }));
+  }
+  async function loadUsers(){
+    const r=await api('admin_users',{search:$('#usearch').value.trim(),offset:uOff}),box=$('#ulist');
+    if(!r.ok){say('#adm',r.reason||'');box.replaceChildren();return;}
+    $('#upage').textContent=r.total?(uOff+1)+'-'+(uOff+r.rows.length)+' of '+r.total:'No users';
+    $('#uprev').disabled=uOff<=0;$('#unext').disabled=uOff+r.rows.length>=r.total;
+    box.replaceChildren(...r.rows.map(x=>{
+      const row=el('div','arow'),main=el('div','grow');
+      main.append(el('b',null,x.name||'(no name)'),el('small',null,x.email+(x.phone?' \u00b7 '+x.phone:'')+(x.verified?'':' \u00b7 not verified')),el('small',null,'Joined '+shortDate(x.created)+' \u00b7 '+x.total_used+' free conversions used'));
+      row.append(el('span','av',initials(x.name||x.email)),main,el('span','chip '+(x.plan==='free'?'':'approved'),x.plan==='free'?'Free':PLANS[x.plan].name+(x.expires_at?' until '+shortDate(x.expires_at):'')));
+      [['Pro 30d','pro'],['Ultra 30d','ultra'],['Free','free']].forEach(([lab,pl])=>{
+        const b=el('button','alt sm',lab);
+        b.addEventListener('click',async()=>{
+          if(!confirm('Set '+(x.email||x.id)+' to '+PLANS[pl].name+(pl==='free'?'':' for 30 days')+'?'))return;
+          const z=await api('admin_set_plan',{userId:x.id,plan:pl,days:30});say('#adm',z.ok?'Plan updated.':(z.reason||'Failed.'));loadUsers();
+        });
+        row.appendChild(b);
+      });
+      return row;
+    }));
+  }
+  function atab(t){
+    aTab=t;
+    document.querySelectorAll('[data-at]').forEach(b=>b.classList.toggle('on',b.dataset.at===t));
+    ['ov','pay','usr','db'].forEach(x=>{$('#at-'+x).hidden=x!==t;});
+    ({ov:loadStats,pay:loadPayments,usr:loadUsers,db:()=>{}})[t]();
+  }
+  document.querySelectorAll('[data-at]').forEach(b=>b.addEventListener('click',()=>{say('#adm','');atab(b.dataset.at);}));
+  $('#prefresh').addEventListener('click',loadPayments);$('#pfilter').addEventListener('change',loadPayments);
+  $('#ugo').addEventListener('click',()=>{uOff=0;loadUsers();});
+  $('#usearch').addEventListener('keydown',e=>{if(e.key==='Enter'){uOff=0;loadUsers();}});
+  $('#uprev').addEventListener('click',()=>{uOff=Math.max(0,uOff-25);loadUsers();});
+  $('#unext').addEventListener('click',()=>{uOff+=25;loadUsers();});
+  $('#setup').addEventListener('click',async()=>{
+    say('#adm','Working...');
+    const r=await api('admin_setup');
+    say('#adm',r.ok?(r.note+' '+r.log.filter(l=>!l.includes('already')).join(' | ')):(r.reason||'Failed.'));
+  });
+  async function boot(){
+    const q=new URLSearchParams(location.search),uid=q.get('userId'),sec=q.get('secret');
+    if(account&&uid&&sec){
+      if(q.get('mode')==='reset'){resetCtx={uid,sec};location.hash='account';showPane('paneReset');}
+      else{try{await account.createSession({userId:uid,secret:sec});}catch(e){}}
+      history.replaceState(null,'',location.pathname+location.hash);
+    }
+    if(q.get('auth')==='failed'){location.hash='account';amsg('That sign-in did not work. If this email already has an account, sign in with your email and password instead.');history.replaceState(null,'',location.pathname+location.hash);}
+    await cpRefresh();
+  }
+  boot();
+  let sel='';
+  function planCards(box,pay){
+    box.replaceChildren(...Object.entries(PLANS).map(([id,p])=>{
+      const c=el('div','plan'+(p.hot?' hot':'')),pr=el('div','price','PKR '+p.price),ul=el('ul');
+      if(p.hot)c.appendChild(el('span','ribbon','Most popular'));
+      pr.appendChild(el('small',null,id==='free'?' forever':' / month'));
+      p.pts.forEach(t=>ul.appendChild(el('li',null,t)));
+      const b=el('button',id==='free'?'alt':null,id==='free'?'Start free':'Choose '+p.name);
+      b.addEventListener('click',()=>{
+        if(id==='free'){go('home','tool');return;}
+        if(!pay){go('billing');return;}
+        sel=id;$('#paytitle').textContent=p.name+' \u2014 PKR '+p.price+' / month';$('#payamt').textContent='PKR '+p.price;$('#paynum').textContent=PAY_NUMBER;
+        $('#pay').hidden=false;$('#pay').scrollIntoView({behavior:'smooth'});
+      });
+      c.append(el('h3',null,p.name),pr,ul,b);return c;
+    }));
+  }
+  planCards($('#plans'),true);planCards($('#planprev'),false);
   $('#copy').addEventListener('click',()=>{try{navigator.clipboard.writeText(PAY_NUMBER);$('#copy').textContent='Copied';}catch(e){}});
   $('#pwa').addEventListener('click',async()=>{
     const t=$('#ptid').value.trim(),n=$('#pname').value.trim(),ps=$('#ps');
@@ -393,13 +587,29 @@
     location.href='mailto:'+SUPPORT_EMAIL+'?subject='+encodeURIComponent('Chat Printer: '+n)+'&body='+encodeURIComponent(m+'\n\n\u2014 '+n+' ('+e+')');
     $('#cs').textContent='Opening your email app...';
   });
-  const views=['home','contact','billing','account'];
+  const views=['home','contact','billing','account','admin','privacy','terms'];
+  let curView='';
+  const rvio=typeof IntersectionObserver!=='undefined'?new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('show');rvio.unobserve(e.target);}}),{threshold:.12}):null;
+  function reveal(){document.querySelectorAll('.rv:not(.show)').forEach(n=>{if(rvio)rvio.observe(n);else n.classList.add('show');});}
   function route(){
-    const h=(location.hash||'#home').slice(1),v=views.includes(h)?h:'home';
+    let v=(location.hash||'#home').slice(1);if(!views.includes(v))v='home';
+    if(v==='admin'&&!loading&&!(st&&st.is_admin))v='home';
     views.forEach(x=>{$('#'+x).hidden=x!==v;});
     document.querySelectorAll('[data-nav]').forEach(a=>a.classList.toggle('on',a.dataset.nav===v));
-    window.scrollTo(0,0);
+    $('#nav').classList.remove('open');$('#burger').setAttribute('aria-expanded','false');
+    const changed=v!==curView;curView=v;
+    if(pendScroll){const t=document.getElementById(pendScroll);pendScroll=null;if(t)setTimeout(()=>t.scrollIntoView({behavior:'smooth',block:'start'}),40);}
+    else if(changed)window.scrollTo(0,0);
+    reveal();
   }
+  $('#burger').addEventListener('click',()=>{const o=$('#nav').classList.toggle('open');$('#burger').setAttribute('aria-expanded',String(o));});
+  document.addEventListener('click',e=>{
+    const a=e.target.closest&&e.target.closest('a[data-scroll]');
+    if(a){pendScroll=a.dataset.scroll;if((location.hash||'#home')===a.getAttribute('href')){e.preventDefault();route();}}
+  });
+  $('#cta').addEventListener('click',()=>go('home','tool'));$('#cta2').addEventListener('click',()=>go('billing'));$('#cta3').addEventListener('click',()=>go('home','tool'));
+  $('#goplans').addEventListener('click',()=>go('billing'));
+  $('#fwa').addEventListener('click',()=>window.open('https://wa.me/'+WA+'?text='+encodeURIComponent('Hi, I need help with Chat Printer.'),'_blank','noopener'));
   window.addEventListener('hashchange',route);route();
   $('#html').addEventListener('click',async()=>{
     $('#html').disabled=true;status('Building HTML (collecting media)...');
@@ -437,7 +647,7 @@
         },'image/png'));
         await new Promise(r=>setTimeout(r,350));
       }
-      status('Ho gaya: '+parts+' image(s) download hui.');
+      status('Done: '+parts+' image(s) downloaded.');
     }catch(e){status('Could not create PNG: '+e.message);}
     finally{holder.remove();$('#png').disabled=false;}
   });
