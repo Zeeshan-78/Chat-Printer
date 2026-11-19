@@ -1,7 +1,7 @@
 // Chat Printer backend (Appwrite Function). Every plan, quota and payment rule lives here, on the server.
 // Visitors never get direct access to the database; they can only call the actions below.
 import { Client, TablesDB, Users, Query, ID, TablesDBIndexType } from 'node-appwrite';
-import { createHash } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 
 const MB = 1048576;
 const PLANS = {
@@ -9,8 +9,8 @@ const PLANS = {
   pro: { name: 'Pro', max: 1024 * MB, total: 0, day: 20 },
   ultra: { name: 'Ultra Pro', max: 0, total: 0, day: 0 },
 };
-const T = { subs: 'subscriptions', daily: 'daily_usage', pay: 'payments' };
-const METHODS = ['JazzCash', 'Easypaisa'];
+const T = { subs: 'subscriptions', daily: 'daily_usage', pay: 'payments', sms: 'bank_sms' };
+const METHODS = ['JazzCash', 'Easypaisa', 'SadaPay'];
 const PRICES = { pro: 450, ultra: 750 };
 const NOPE = { ok: false, reason: 'Not allowed.' };
 const DB = () => process.env.DATABASE_ID || 'chatprinter';
@@ -78,6 +78,156 @@ async function begin(db, uid, size) {
   return { ok: true, plan: eff, media: eff !== 'free' };
 }
 
+const safeEq = (a, b) => timingSafeEqual(createHash('sha256').update(String(a)).digest(), createHash('sha256').update(String(b)).digest());
+const rawBody = (req) => (typeof req.bodyText === 'string' ? req.bodyText : typeof req.bodyRaw === 'string' ? req.bodyRaw : typeof req.body === 'string' ? req.body : '');
+
+// Pulls the Transaction ID and the amount out of a wallet confirmation SMS (formats differ, so it only trusts a labelled ID).
+export function parseSms(text) {
+  const t = String(text || '');
+  const idm = t.match(/\b(?:tid|trx\.?\s*id|txn\.?\s*id|trans(?:action)?\.?\s*(?:id|no\.?|number)|ref(?:erence)?\.?\s*(?:id|no\.?|number)?)\b\s*[:#.\-]?\s*([A-Za-z0-9-]{6,30})/i);
+  const am = t.match(/(?:rs\.?|pkr)\s*([\d,]+(?:\.\d{1,2})?)/i);
+  return { tid: idm ? idm[1].toUpperCase() : '', amount: am ? Math.round(parseFloat(am[1].replace(/,/g, '')) * 100) : 0 };
+}
+
+export function verifyPaddle(raw, header, secret, nowMs = Date.now()) {
+  if (!secret || !header) return false;
+  const pairs = String(header).split(';').map((x) => x.split('=')).filter((x) => x.length === 2).map(([k, v]) => [k.trim(), v.trim()]);
+  const ts = (pairs.find(([k]) => k === 'ts') || [])[1];
+  const hs = pairs.filter(([k]) => k === 'h1').map(([, v]) => v);
+  if (!ts || !hs.length || Math.abs(nowMs / 1000 - Number(ts)) > 300) return false;
+  const h = createHmac('sha256', secret).update(ts + ':' + raw).digest('hex');
+  return hs.some((x) => safeEq(h, x));
+}
+
+async function grant(db, uid, plan, days = 30) {
+  const s = await getSub(db, uid);
+  const now = Date.now();
+  const keep = s.plan === plan && s.expiresAt && new Date(s.expiresAt).getTime() > now;
+  const until = new Date((keep ? new Date(s.expiresAt).getTime() : now) + days * 864e5).toISOString();
+  await db.updateRow({ databaseId: DB(), tableId: T.subs, rowId: uid, data: { plan, expiresAt: until } });
+  return until;
+}
+
+async function approveRow(db, p, source) {
+  await grant(db, p.userId, p.plan);
+  await db.updateRow({ databaseId: DB(), tableId: T.pay, rowId: p.$id, data: { status: 'approved', source } });
+}
+
+// A payment row can carry newer columns; if the database has not been updated yet, fall back to the old shape.
+async function createPay(db, data) {
+  try {
+    return await db.createRow({ databaseId: DB(), tableId: T.pay, rowId: ID.unique(), data });
+  } catch (e) {
+    if (code(e) === 400 && /attribute|column/i.test(String(e.message))) {
+      const { currency, amountCents, source, ...legacy } = data;
+      return db.createRow({ databaseId: DB(), tableId: T.pay, rowId: ID.unique(), data: legacy });
+    }
+    throw e;
+  }
+}
+
+async function autoMatch(db, p) {
+  if (!process.env.SMS_SECRET) return false;
+  const since = new Date(Date.now() - 7 * 864e5).toISOString();
+  const r = await db.listRows({ databaseId: DB(), tableId: T.sms, queries: [Query.greaterThan('$createdAt', since), Query.orderDesc('$createdAt'), Query.limit(200)] });
+  const need = PRICES[p.plan] * 100;
+  for (const row of r.rows) {
+    if (row.matched) continue;
+    const s = parseSms(row.text);
+    if (s.tid === p.tid && s.amount >= need) {
+      await approveRow(db, p, 'sms');
+      await db.updateRow({ databaseId: DB(), tableId: T.sms, rowId: row.$id, data: { matched: p.$id } });
+      return true;
+    }
+  }
+  return false;
+}
+
+async function smsHook(db, req, res) {
+  if (!process.env.SMS_SECRET) return res.json({ ok: false, reason: 'SMS verification is not enabled.' }, 503);
+  if (!safeEq(req.headers['x-sms-secret'] || '', process.env.SMS_SECRET)) return res.json({ ok: false }, 401);
+  let b = null;
+  try {
+    b = JSON.parse(rawBody(req));
+  } catch (e) {
+    b = null;
+  }
+  const text = String((b && (b.text || b.message || b.body)) || '').slice(0, 1000);
+  if (!text) return res.json({ ok: false, reason: 'No text.' }, 400);
+  const row = await db.createRow({ databaseId: DB(), tableId: T.sms, rowId: ID.unique(), data: { text, matched: '' } });
+  const s = parseSms(text);
+  let matched = false;
+  if (s.tid) {
+    const q = await db.listRows({ databaseId: DB(), tableId: T.pay, queries: [Query.equal('tid', [s.tid]), Query.equal('status', ['pending']), Query.limit(1)] });
+    const p = q.rows[0];
+    if (p && s.amount >= PRICES[p.plan] * 100) {
+      await approveRow(db, p, 'sms');
+      await db.updateRow({ databaseId: DB(), tableId: T.sms, rowId: row.$id, data: { matched: p.$id } });
+      matched = true;
+    }
+  }
+  try {
+    const old = await db.listRows({ databaseId: DB(), tableId: T.sms, queries: [Query.lessThan('$createdAt', new Date(Date.now() - 30 * 864e5).toISOString()), Query.limit(25)] });
+    for (const o of old.rows) await db.deleteRow({ databaseId: DB(), tableId: T.sms, rowId: o.$id });
+  } catch (e) {
+    /* pruning is best effort */
+  }
+  return res.json({ ok: true, matched });
+}
+
+async function paddleHook(db, req, res) {
+  const raw = rawBody(req);
+  if (!verifyPaddle(raw, req.headers['paddle-signature'], process.env.PADDLE_WEBHOOK_SECRET)) return res.json({ ok: false }, 401);
+  let ev;
+  try {
+    ev = JSON.parse(raw);
+  } catch (e) {
+    return res.json({ ok: false }, 400);
+  }
+  if (ev.event_type !== 'transaction.completed') return res.json({ ok: true, ignored: true });
+  const d = ev.data || {};
+  const cd = d.custom_data || {};
+  const plan = String(cd.plan || '');
+  const uid = String(cd.user_id || '');
+  if (!uid || !['pro', 'ultra'].includes(plan) || !d.id) return res.json({ ok: true, ignored: true });
+  const total = Number(d.details && d.details.totals && d.details.totals.total) || 0;
+  let row;
+  try {
+    row = await createPay(db, { userId: uid, plan, method: 'Card', tid: String(d.id).slice(0, 30), name: 'Card checkout', status: 'approved', currency: String(d.currency_code || 'USD').slice(0, 3), amountCents: Math.round(total), source: 'paddle' });
+  } catch (e) {
+    if (code(e) === 409) return res.json({ ok: true, duplicate: true });
+    throw e;
+  }
+  try {
+    await grant(db, uid, plan);
+  } catch (e) {
+    await db.deleteRow({ databaseId: DB(), tableId: T.pay, rowId: row.$id });
+    throw e;
+  }
+  return res.json({ ok: true });
+}
+
+async function createCheckout(uid, b) {
+  const key = process.env.PADDLE_API_KEY;
+  const plan = String(b.plan || '');
+  const price = plan === 'pro' ? process.env.PADDLE_PRICE_PRO : plan === 'ultra' ? process.env.PADDLE_PRICE_ULTRA : '';
+  if (!key || !price) return { ok: false, reason: 'Card payments are not set up yet.' };
+  const base = process.env.PADDLE_ENV === 'production' ? 'https://api.paddle.com' : 'https://sandbox-api.paddle.com';
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 10000);
+  try {
+    const r = await fetch(base + '/transactions', { method: 'POST', signal: ctl.signal, headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ price_id: price, quantity: 1 }], custom_data: { user_id: uid, plan } }) });
+    const j = await r.json().catch(() => ({}));
+    const url = j && j.data && j.data.checkout && j.data.checkout.url;
+    if (!r.ok || !url) return { ok: false, reason: 'Could not start the card payment. Try again later.' };
+    return { ok: true, url };
+  } catch (e) {
+    return { ok: false, reason: 'Could not start the card payment. Try again later.' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function submit(db, uid, b) {
   const plan = String(b.plan || '');
   const method = String(b.method || '');
@@ -87,18 +237,25 @@ async function submit(db, uid, b) {
     return { ok: false, reason: 'Check the details and try again.' };
   const pend = await db.listRows({ databaseId: DB(), tableId: T.pay, queries: [Query.equal('userId', [uid]), Query.equal('status', ['pending']), Query.limit(6)] });
   if (pend.rows.length >= 5) return { ok: false, reason: 'Too many pending payments. Please wait for approval.' };
+  let row;
   try {
-    await db.createRow({ databaseId: DB(), tableId: T.pay, rowId: ID.unique(), data: { userId: uid, plan, method, tid, name, status: 'pending' } });
+    row = await createPay(db, { userId: uid, plan, method, tid, name, status: 'pending', currency: 'PKR', amountCents: PRICES[plan] * 100, source: 'manual' });
   } catch (e) {
     if (code(e) === 409) return { ok: false, reason: 'This Transaction ID was already submitted.' };
     throw e;
   }
-  return { ok: true };
+  let activated = false;
+  try {
+    activated = await autoMatch(db, row);
+  } catch (e) {
+    activated = false;
+  }
+  return { ok: true, activated };
 }
 
 async function myPayments(db, uid) {
   const r = await db.listRows({ databaseId: DB(), tableId: T.pay, queries: [Query.equal('userId', [uid]), Query.orderDesc('$createdAt'), Query.limit(10)] });
-  return { ok: true, rows: r.rows.map((x) => ({ plan: x.plan, tid: x.tid, status: x.status })) };
+  return { ok: true, rows: r.rows.map((x) => ({ id: x.$id, plan: x.plan, tid: x.tid, status: x.status, method: x.method, currency: x.currency || 'PKR', amountCents: x.amountCents || PRICES[x.plan] * 100, source: x.source || 'manual', created: x.$createdAt })) };
 }
 
 async function adminDecide(db, b) {
@@ -106,13 +263,8 @@ async function adminDecide(db, b) {
   const p = await db.getRow({ databaseId: DB(), tableId: T.pay, rowId: id });
   if (p.status !== 'pending') return { ok: false, reason: 'This payment was already handled.' };
   if (b.decision === 'approve') {
-    const s = await getSub(db, p.userId);
-    const now = Date.now();
-    const keep = s.plan === p.plan && s.expiresAt && new Date(s.expiresAt).getTime() > now;
-    const until = new Date((keep ? new Date(s.expiresAt).getTime() : now) + 30 * 864e5).toISOString();
-    await db.updateRow({ databaseId: DB(), tableId: T.subs, rowId: p.userId, data: { plan: p.plan, expiresAt: until } });
-    await db.updateRow({ databaseId: DB(), tableId: T.pay, rowId: id, data: { status: 'approved' } });
-    return { ok: true, until };
+    await approveRow(db, p, 'admin');
+    return { ok: true };
   }
   if (b.decision === 'reject') {
     await db.updateRow({ databaseId: DB(), tableId: T.pay, rowId: id, data: { status: 'rejected' } });
@@ -123,10 +275,10 @@ async function adminDecide(db, b) {
 
 async function adminPayments(db, b) {
   const st = String(b.status || 'pending');
-  const qs = [Query.orderDesc('$createdAt'), Query.limit(50)];
+  const qs = [Query.orderDesc('$createdAt'), Query.limit(Math.min(500, Math.max(1, Number(b.limit) || 50)))];
   if (['pending', 'approved', 'rejected'].includes(st)) qs.unshift(Query.equal('status', [st]));
   const r = await db.listRows({ databaseId: DB(), tableId: T.pay, queries: qs });
-  return { ok: true, rows: r.rows.map((x) => ({ id: x.$id, plan: x.plan, method: x.method, tid: x.tid, name: x.name, status: x.status, userId: x.userId, created: x.$createdAt })) };
+  return { ok: true, rows: r.rows.map((x) => ({ id: x.$id, plan: x.plan, method: x.method, tid: x.tid, name: x.name, status: x.status, userId: x.userId, created: x.$createdAt, source: x.source || 'manual', currency: x.currency || 'PKR', amountCents: x.amountCents || PRICES[x.plan] * 100 })) };
 }
 
 async function adminStats(db, users) {
@@ -179,6 +331,31 @@ async function adminSetPlan(db, b) {
   return { ok: true };
 }
 
+async function adminRevenue(db) {
+  const since = new Date(Date.now() - 30 * 864e5).toISOString();
+  const r = await db.listRows({ databaseId: DB(), tableId: T.pay, queries: [Query.equal('status', ['approved']), Query.greaterThan('$createdAt', since), Query.limit(500)] });
+  const days = {};
+  const totals = {};
+  for (const x of r.rows) {
+    const d = String(x.$createdAt).slice(0, 10);
+    days[d] = (days[d] || 0) + 1;
+    const c = x.currency || 'PKR';
+    totals[c] = (totals[c] || 0) + (x.amountCents || PRICES[x.plan] * 100);
+  }
+  return { ok: true, days, totals };
+}
+
+async function adminAutomation(db) {
+  let sms = [];
+  try {
+    const r = await db.listRows({ databaseId: DB(), tableId: T.sms, queries: [Query.orderDesc('$createdAt'), Query.limit(10)] });
+    sms = r.rows.map((x) => ({ id: x.$id, created: x.$createdAt, matched: !!x.matched, text: String(x.text || '').slice(0, 90) }));
+  } catch (e) {
+    sms = [];
+  }
+  return { ok: true, sms_enabled: !!process.env.SMS_SECRET, paddle_ready: !!(process.env.PADDLE_API_KEY && process.env.PADDLE_PRICE_PRO && process.env.PADDLE_PRICE_ULTRA), paddle_webhook: !!process.env.PADDLE_WEBHOOK_SECRET, paddle_env: process.env.PADDLE_ENV === 'production' ? 'production' : 'sandbox', sms };
+}
+
 // Creates the database, tables, columns and indexes. Safe to run again: existing things are skipped.
 async function setup(db) {
   const log = [];
@@ -202,7 +379,7 @@ async function setup(db) {
     if (code(e) === 404) await run('database', () => db.create({ databaseId: d, name: 'Chat Printer' }));
     else log.push('database: NOT READY - ' + (e && e.message ? e.message : e));
   }
-  for (const [id, name] of [[T.subs, 'Subscriptions'], [T.daily, 'Daily usage'], [T.pay, 'Payments']])
+  for (const [id, name] of [[T.subs, 'Subscriptions'], [T.daily, 'Daily usage'], [T.pay, 'Payments'], [T.sms, 'Bank SMS']])
     await run('table ' + id, () => db.createTable({ databaseId: d, tableId: id, name, permissions: [], rowSecurity: false }));
   await str(T.subs, 'userId', 36, true);
   await str(T.subs, 'plan', 10, false, 'free');
@@ -217,6 +394,11 @@ async function setup(db) {
   await str(T.pay, 'tid', 30, true);
   await str(T.pay, 'name', 80, true);
   await str(T.pay, 'status', 12, false, 'pending');
+  await str(T.pay, 'currency', 3, false, 'PKR');
+  await str(T.pay, 'source', 12, false, 'manual');
+  await int(T.pay, 'amountCents');
+  await str(T.sms, 'text', 1000, true);
+  await str(T.sms, 'matched', 40, false, '');
   const idx = (table, key, type, col) => run('index ' + key, () => db.createIndex({ databaseId: d, tableId: table, key, type, columns: [col] }));
   await idx(T.pay, 'tid_unique', TablesDBIndexType.Unique, 'tid');
   await idx(T.pay, 'user_idx', TablesDBIndexType.Key, 'userId');
@@ -228,6 +410,15 @@ async function setup(db) {
 }
 
 export const makeHandler = (db, users) => async ({ req, res, error }) => {
+  const method = String(req.method || '').toUpperCase();
+  if (method === 'POST' && (req.path === '/sms' || req.path === '/paddle')) {
+    try {
+      return await (req.path === '/sms' ? smsHook : paddleHook)(db, req, res);
+    } catch (e) {
+      error(String((e && e.stack) || e));
+      return res.json({ ok: false }, 500);
+    }
+  }
   const uid = req.headers['x-appwrite-user-id'];
   if (!uid) return res.json({ ok: false, reason: 'Please sign in first.' });
   let b = {};
@@ -252,6 +443,9 @@ export const makeHandler = (db, users) => async ({ req, res, error }) => {
       case 'my_payments': return res.json(await myPayments(db, uid));
       case 'admin_pending': return res.json(admin ? await adminPayments(db, { status: 'pending' }) : NOPE);
       case 'admin_payments': return res.json(admin ? await adminPayments(db, b) : NOPE);
+      case 'create_checkout': return res.json(await createCheckout(uid, b));
+      case 'admin_revenue': return res.json(admin ? await adminRevenue(db) : NOPE);
+      case 'admin_automation': return res.json(admin ? await adminAutomation(db) : NOPE);
       case 'admin_stats': return res.json(admin ? await adminStats(db, users) : NOPE);
       case 'admin_users': return res.json(admin ? await adminUsers(db, users, b) : NOPE);
       case 'admin_set_plan': return res.json(admin ? await adminSetPlan(db, b) : NOPE);
