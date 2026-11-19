@@ -3,12 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Chat Printer — Turn WhatsApp chats into PDF, PNG and HTML</title>
-<meta name="description" content="Turn exported WhatsApp chats into PDF, PNG or HTML in your browser. Photos, voice notes and videos included on paid plans."><meta name="theme-color" content="#008069">
+<title>Chat Printer: WhatsApp Chat to PDF, PNG and HTML Converter</title>
+<meta name="description" content="Convert exported WhatsApp chats to PDF, PNG or HTML in your browser. Pick a date range, keep group names, and keep photos, voice notes and videos on paid plans. Private by design.">
+<link rel="canonical" href="https://chatprinter.vercel.app/">
+<meta name="robots" content="index,follow,max-image-preview:large">
+<meta property="og:type" content="website"><meta property="og:site_name" content="Chat Printer"><meta property="og:title" content="Chat Printer: WhatsApp Chat to PDF, PNG and HTML Converter"><meta property="og:description" content="Convert exported WhatsApp chats to PDF, PNG or HTML in your browser. Pick a date range, keep group names, and keep photos, voice notes and videos on paid plans. Private by design."><meta property="og:url" content="https://chatprinter.vercel.app/"><meta property="og:image" content="https://chatprinter.vercel.app/img/og-image.png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="Chat Printer logo">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="Chat Printer: WhatsApp Chat to PDF, PNG and HTML Converter"><meta name="twitter:description" content="Convert exported WhatsApp chats to PDF, PNG or HTML in your browser. Pick a date range, keep group names, and keep photos, voice notes and videos on paid plans. Private by design."><meta name="twitter:image" content="https://chatprinter.vercel.app/img/og-image.png">
+<link rel="icon" href="/favicon.ico" sizes="any"><link rel="icon" type="image/png" sizes="32x32" href="/img/favicon-32.png"><link rel="apple-touch-icon" href="/img/apple-touch-icon.png"><link rel="manifest" href="/site.webmanifest">
+<script type="application/ld+json">[{"@context":"https://schema.org","@type":"WebApplication","name":"Chat Printer","url":"https://chatprinter.vercel.app/","description":"Convert exported WhatsApp chats to PDF, PNG or HTML in your browser. Pick a date range, keep group names, and keep photos, voice notes and videos on paid plans. Private by design.","applicationCategory":"UtilitiesApplication","operatingSystem":"Any","browserRequirements":"Requires JavaScript","image":"https://chatprinter.vercel.app/img/og-image.png","offers":{"@type":"AggregateOffer","priceCurrency":"USD","lowPrice":"0","highPrice":"6.99","offerCount":"3"}},{"@context":"https://schema.org","@type":"Organization","name":"Chat Printer","url":"https://chatprinter.vercel.app/","logo":"https://chatprinter.vercel.app/img/favicon-512.png"},{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Is my chat uploaded anywhere?","acceptedAnswer":{"@type":"Answer","text":"No. The file is processed inside your browser and never sent to a server."}},{"@type":"Question","name":"How do I export a chat?","acceptedAnswer":{"@type":"Answer","text":"In WhatsApp open the chat, tap the menu or the contact name, choose Export chat, then Include media, and save the .zip."}},{"@type":"Question","name":"What does the Free plan include?","acceptedAnswer":{"@type":"Answer","text":"Two conversions in total, text only: photos, voice notes and videos are not included. Paid plans include them."}},{"@type":"Question","name":"How do I pay?","acceptedAnswer":{"@type":"Answer","text":"Pay by card, PayPal or Apple Pay with automatic activation, or with JazzCash, Easypaisa or SadaPay in Pakistan."}}]}]</script><meta name="theme-color" content="#008069">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-<header class="hdr"><div class="hdr-in"><a class="logo" href="#home"><span class="lg">🖨️</span><span>Chat Printer</span></a>
+<noscript><p style="padding:12px;text-align:center;background:#fde68a;color:#111">Chat Printer needs JavaScript to convert your chat in your browser.</p></noscript>
+<header class="hdr"><div class="hdr-in"><a class="logo" href="/#home" aria-label="Chat Printer home"><img src="/img/logo-icon-white.png" alt="" width="40" height="28"><span class="wm"><b>CHAT</b>PRINTER</span></a>
 <nav class="nav" id="nav"><a href="#home" data-nav="home">Home</a><a href="#billing" data-nav="billing">Plans</a><a href="#contact" data-nav="contact">Support</a><a href="#admin" data-nav="admin" id="navadmin" hidden>Admin</a></nav>
 <div class="hdr-r"><a class="acct-chip" href="#account" id="navacct" data-nav="account"><span class="av" id="hav">?</span><span id="navtxt">Sign in</span></a><button class="burger" id="burger" aria-label="Menu" aria-expanded="false"><span></span><span></span><span></span></button></div></div></header>
 <div id="home" class="view">
@@ -91,7 +98,7 @@
 <div class="fcard"><div class="ic">🔎</div><h3>Search and themes</h3><p>Filter by words, switch light or dark, choose which side is "me".</p></div>
 <div class="fcard"><div class="ic">🚫</div><h3>Deleted messages</h3><p>See where messages were deleted, and restore text from an older export.</p></div>
 <div class="fcard"><div class="ic">📄</div><h3>PDF, PNG or HTML</h3><p>A print-ready PDF, image pages, or one file that opens anywhere.</p></div></div></section>
-<section class="land rv"><h2 class="sh">Simple plans</h2><p>Start free. Upgrade when you need photos, voice notes and videos.</p><div class="plans" id="planprev"></div></section>
+<section class="land rv"><h2 class="sh">Simple plans</h2><p>Start free. Upgrade when you need photos, voice notes and videos.</p><div class="curbar"><label for="curpick">Prices in</label><select class="fld sm" id="curpick"></select><span class="sub" id="curnote"></span></div><div class="plans" id="planprev"></div></section>
 <section class="land rv"><h2 class="sh">Questions</h2><div class="faq" style="max-width:760px;margin:20px auto 0">
 <details><summary>Is my chat uploaded anywhere?</summary><p>No. The file is processed inside your browser and never sent to a server.</p></details>
 <details><summary>How do I export a chat?</summary><p>In WhatsApp open the chat, tap the menu or the contact name, choose Export chat, then Include media, and save the .zip.</p></details>
@@ -120,12 +127,12 @@
 <div id="otpbox" hidden><label for="acode">Code from your email</label><input class="fld" type="text" id="acode" inputmode="numeric" autocomplete="one-time-code"><div class="btns"><button id="verify">Verify and continue</button></div></div></div>
 <div id="paneForgot" hidden><p class="sub">Enter your email and we will send a link to choose a new password.</p><label for="fp_email">Email</label><input class="fld" type="text" id="fp_email" inputmode="email" autocomplete="email">
 <div class="btns"><button id="dofp">Send reset link</button><button class="alt" id="backin">Back</button></div></div>
-<div id="paneReset" hidden><p class="sub">Choose a new password.</p><label for="rs_pw">New password</label><input class="fld" type="password" id="rs_pw" autocomplete="new-password"><label for="rs_pw2">Repeat password</label><input class="fld" type="password" id="rs_pw2" autocomplete="new-password">
+<div id="paneReset" hidden><p class="sub">Choose a new password.</p><label for="rs_pw">New password</label><input class="fld" type="password" id="rs_pw" autocomplete="new-password" data-strength data-peer="rs_pw2"><label for="rs_pw2">Repeat password</label><input class="fld" type="password" id="rs_pw2" autocomplete="new-password">
 <div class="btns"><button id="dors">Save password</button></div></div>
 <div class="or"><span>or continue with</span></div>
-<div class="social"><button class="soc" id="gbtn"><span class="si g">G</span>Google</button><button class="soc" id="fbtn"><span class="si f">f</span>Facebook</button><button class="soc" id="hbtn"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 00-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.87-1.54-3.87-1.54-.52-1.33-1.28-1.69-1.28-1.69-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.03 1.76 2.7 1.25 3.36.96.1-.75.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.28 1.18-3.08-.12-.29-.51-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 015.78 0c2.2-1.49 3.17-1.18 3.17-1.18.62 1.59.23 2.76.11 3.05.74.8 1.18 1.82 1.18 3.08 0 4.42-2.69 5.39-5.25 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0012 .5z"/></svg>GitHub</button></div>
+<div class="social"><button class="soc" id="gbtn"><span class="si g">G</span>Google</button><button class="soc" id="fbtn"><span class="si f">f</span>Facebook</button><button class="soc" id="tbtn"><span class="si t">♪</span>TikTok</button><button class="soc" id="hbtn"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 00-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.87-1.54-3.87-1.54-.52-1.33-1.28-1.69-1.28-1.69-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.03 1.76 2.7 1.25 3.36.96.1-.75.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.28 1.18-3.08-.12-.29-.51-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 015.78 0c2.2-1.49 3.17-1.18 3.17-1.18.62 1.59.23 2.76.11 3.05.74.8 1.18 1.82 1.18 3.08 0 4.42-2.69 5.39-5.25 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0012 .5z"/></svg>GitHub</button></div>
 <div class="status" id="aus"></div>
-<p class="sub fine">By continuing you agree to the <a href="#terms">Terms</a> and the <a href="#privacy">Privacy Policy</a>.</p></div></div>
+<p class="sub fine">By continuing you agree to the <a href="/terms">Terms</a> and the <a href="/privacy">Privacy Policy</a>.</p></div></div>
 <div id="dash" hidden>
 <div class="card banner" id="finish" hidden><b>Finish creating your account.</b> Add your name and choose a password to continue.</div>
 <div class="dash-grid">
@@ -135,57 +142,43 @@
 <div class="card"><h3>Profile</h3><div class="photo-row"><div class="avbig sm" id="avprev"></div><div><input type="file" id="pf_photo" accept="image/*" hidden><div class="btns"><button class="alt sm" id="pf_pick">Change photo</button><button class="alt sm" id="pf_rm">Remove</button></div></div></div>
 <label for="pf_name">Full name</label><input class="fld" type="text" id="pf_name" autocomplete="name"><label for="pf_email">Email</label><input class="fld" type="text" id="pf_email" disabled><label for="pf_phone">Phone number</label><input class="fld" type="text" id="pf_phone" inputmode="tel" autocomplete="tel" placeholder="+923001234567">
 <p class="sub fine">Saved on your profile. We do not verify it.</p><div class="btns"><button id="pf_save">Save profile</button></div><div class="status" id="pf_s"></div></div>
-<div class="card"><h3 id="pw_h">Password</h3><div id="pw_oldrow"><label for="pw_old">Current password</label><input class="fld" type="password" id="pw_old" autocomplete="current-password"></div>
-<label for="pw_new">New password</label><input class="fld" type="password" id="pw_new" autocomplete="new-password"><label for="pw_new2">Repeat new password</label><input class="fld" type="password" id="pw_new2" autocomplete="new-password">
+<div class="card" id="pwcard"><h3 id="pw_h">Password</h3><div id="pw_oldrow"><label for="pw_old">Current password</label><input class="fld" type="password" id="pw_old" autocomplete="current-password"></div>
+<label for="pw_new">New password</label><input class="fld" type="password" id="pw_new" autocomplete="new-password" data-strength data-peer="pw_new2"><label for="pw_new2">Repeat new password</label><input class="fld" type="password" id="pw_new2" autocomplete="new-password">
 <div class="btns"><button id="pw_save">Save password</button></div><div class="status" id="pw_s"></div></div>
 <div class="card"><h3>Plan and usage</h3><div id="usage"></div><div class="btns"><button class="alt" id="goplans">See plans</button></div></div>
+<div class="card"><h3>Preferences</h3><label for="pref_cur">Price currency</label><select class="fld" id="pref_cur"></select><p class="sub fine">Used on the Plans page. We detect it from your location by default.</p></div>
+<div class="card"><h3>Devices</h3><div id="sessions"><p class="sub">Loading...</p></div><div class="btns"><button class="alt sm" id="sess_refresh">Refresh</button></div></div>
+<div class="card"><h3>Your data</h3><p class="sub">Download what we keep about you, or deactivate your account.</p><div class="btns"><button class="alt" id="dl_data">Download my data</button></div>
+<label for="deact_in">To deactivate, type DEACTIVATE</label><input class="fld" type="text" id="deact_in" autocomplete="off"><div class="btns"><button class="alt" id="deact">Deactivate account</button></div><div class="status" id="data_s"></div></div>
 <div class="card"><h3>Payments</h3><div id="mypay"><p class="sub">Your submitted payments appear here.</p></div></div>
 </div></div></div></section>
 
 <section id="admin" class="view page in" hidden><h2>Admin panel</h2>
-<div class="tabs" id="atabs"><button class="tab on" data-at="ov">Overview</button><button class="tab" data-at="pay">Payments</button><button class="tab" data-at="usr">Users</button><button class="tab" data-at="db">Database</button></div>
-<div id="at-ov"><div class="stats" id="stats"></div><p class="sub fine" id="statnote"></p></div>
-<div id="at-pay" hidden><div class="toolbar"><select class="fld" id="pfilter"><option value="pending">Pending</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="all">All</option></select><button class="alt sm" id="prefresh">Refresh</button></div><div id="pend"></div></div>
-<div id="at-usr" hidden><div class="toolbar"><input class="fld" type="text" id="usearch" placeholder="Search name, email or ID"><button class="alt sm" id="ugo">Search</button></div><div id="ulist"></div><div class="toolbar"><button class="alt sm" id="uprev">Previous</button><span class="sub" id="upage"></span><button class="alt sm" id="unext">Next</button></div></div>
-<div id="at-db" hidden><div class="card"><h3>Database</h3><p class="sub">Creates or repairs the tables and indexes. Safe to run again. After an update, run it once more.</p><div class="btns"><button id="setup">Run database setup</button></div></div></div>
+<div class="tabs" id="atabs"><button class="tab on" data-at="ov">Overview</button><button class="tab" data-at="pay">Payments</button><button class="tab" data-at="usr">Users</button><button class="tab" data-at="auto">Automation</button><button class="tab" data-at="db">Database</button></div>
+<div id="at-ov"><div class="stats" id="stats"></div><div class="card" style="margin-top:14px"><h3>Approved payments, last 30 days</h3><div class="chart" id="chart"></div><p class="sub fine" id="revnote"></p></div><p class="sub fine" id="statnote"></p></div>
+<div id="at-pay" hidden><div class="toolbar"><select class="fld" id="pfilter"><option value="pending">Pending</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="all">All</option></select><button class="alt sm" id="prefresh">Refresh</button><button class="alt sm" id="pcsv">Export CSV</button></div><div id="pend"></div></div>
+<div id="at-usr" hidden><div class="toolbar"><input class="fld" type="text" id="usearch" placeholder="Search name, email or ID"><button class="alt sm" id="ugo">Search</button><label class="sub">Days for a grant <input class="fld" type="number" id="ugdays" value="30" min="1" max="3650" style="width:90px;margin-left:6px"></label></div><div id="ulist"></div><div class="toolbar"><button class="alt sm" id="uprev">Previous</button><span class="sub" id="upage"></span><button class="alt sm" id="unext">Next</button></div></div>
+<div id="at-auto" hidden><div class="card" id="autobox"></div><div class="card" style="margin-top:14px"><h3>Recent payment SMS</h3><div id="smslist"></div></div></div>
+<div id="at-db" hidden><div class="card"><h3>Database</h3><p class="sub">Creates or repairs the tables, columns and indexes. Safe to run again. After an update, run it once more.</p><div class="btns"><button id="setup">Run database setup</button></div></div></div>
 <div class="status" id="adm"></div></section>
 
 <section id="billing" class="view page in" hidden>
-<h2>Plans and billing</h2><p>Pay with JazzCash or Easypaisa. Submit your Transaction ID while signed in. Your plan activates once the payment is verified.</p>
-<div class="plans" id="plans"></div>
+<h2>Plans and billing</h2><p>Pay by card or with a Pakistan wallet (JazzCash, Easypaisa, SadaPay). Your plan activates automatically once the payment is confirmed.</p>
+<div class="curbar"><label for="curpick2">Prices in</label><select class="fld sm" id="curpick2"></select><span class="sub" id="curnote2"></span></div><div class="plans" id="plans"></div>
 <div class="card pay" id="pay" hidden><h3 id="paytitle"></h3>
-<ol><li>Open JazzCash or Easypaisa and send <b id="payamt"></b> to <b id="paynum"></b> <button class="alt sm" id="copy">Copy number</button></li><li>Enter the Transaction ID (TID) from the confirmation message and submit it. You must be signed in.</li></ol>
-<input type="text" id="ptid" placeholder="Transaction ID"><input type="text" id="pname" placeholder="Your name"><select id="pmeth"><option>JazzCash</option><option>Easypaisa</option></select>
-<div class="btns"><button id="pwa">Submit payment</button></div><div class="status" id="ps"></div></div>
+<div class="tabs"><button class="tab on" id="tabcard">Card, PayPal, Apple Pay</button><button class="tab" id="tablocal">Pakistan wallets</button></div>
+<div id="paycard"><p class="sub">Pay securely online. Your plan turns on automatically when the payment is confirmed. The checkout opens in a secure page of our payment partner.</p>
+<div class="btns"><button id="paycardgo">Continue to secure payment</button></div><div class="status" id="pcs"></div></div>
+<div id="paylocal" hidden><ol><li>Send <b id="payamt"></b> to <b id="paynum"></b> with <select class="fld sm" id="pmeth"><option>JazzCash</option><option>Easypaisa</option><option>SadaPay</option></select> <button class="alt sm" id="copy">Copy number</button></li><li>Enter the Transaction ID (TID) from the confirmation message and submit it.</li></ol>
+<input class="fld" type="text" id="ptid" placeholder="Transaction ID" autocomplete="off"><input class="fld" type="text" id="pname" placeholder="Your name" style="margin-top:8px">
+<div class="btns"><button id="pwa">Submit payment</button></div><div class="status" id="ps"></div>
+<p class="sub fine">Your plan is usually activated automatically when your Transaction ID matches our payment notification. If it does not match, we check it by hand.</p></div></div>
 <div class="card" style="margin-top:16px"><h3>Your payments</h3><div id="mypay"><p class="sub">Your submitted payments appear here.</p></div></div>
 <div class="note">Payments are verified manually. Once approved, your plan activates on your account automatically.</div></section>
-<section id="privacy" class="view page in" hidden>
-<h2>Privacy Policy</h2><p>Last updated: 17 November 2026</p>
-<div class="card legal">
-<h3>Your chats stay with you</h3><p>Chat Printer converts your exported WhatsApp chat inside your own browser. The chat file, the messages and the media are not uploaded to our servers.</p>
-<h3>What we collect</h3>
-<ul><li>When you sign in: your email address (and the basic profile details Google shares, if you use Google sign-in) and a user ID.</li>
-<li>Your plan, when it ends, and how many conversions you have used. We do not store your chat or your files.</li>
-<li>When you submit a payment: the name you type, the payment method, the plan and the Transaction ID.</li></ul>
-<h3>Who handles the data</h3><p>Accounts, plans and payment records are stored with Appwrite Cloud. The website is hosted on Vercel, which may keep standard server logs. If you choose Google sign-in, Google handles that step. We do not sell your data and we do not run advertising or tracking scripts.</p>
-<h3>Browser storage</h3><p>Your browser keeps a sign-in session so you stay signed in. Signing out removes it.</p>
-<h3>Your choices</h3><p>You can ask us to delete your account and records at any time through the Contact page.</p>
-</div></section>
-<section id="terms" class="view page in" hidden>
-<h2>Terms of Use</h2><p>Last updated: 17 November 2026</p>
-<div class="card legal">
-<h3>The service</h3><p>Chat Printer turns exported WhatsApp chats into PDF, PNG images or an HTML file. It is not affiliated with WhatsApp or Meta Platforms, Inc.</p>
-<h3>Your responsibility</h3><p>Only convert chats you have the right to use, and respect the privacy of the people in them. Do not use the service to harass anyone or for anything illegal. Keep your original export: we cannot recover files for you.</p>
-<h3>Plans and payment</h3><p>Plans and limits are shown on the Billing page. You pay with JazzCash or Easypaisa and submit the Transaction ID. We verify each payment by hand, then activate the plan on your account for 30 days. Plans do not renew automatically.</p>
-<h3>Refunds</h3><p>If you paid and your plan was not activated, contact us with your Transaction ID. Other refund requests are reviewed case by case.</p>
-<h3>Deleted messages</h3><p>WhatsApp removes the text of deleted messages from exports, so we can only show a marker. Text can be restored only from an older export that you provide.</p>
-<h3>No warranty</h3><p>The service is provided as it is, without promises that it will always be available or error free. We are not responsible for data loss.</p>
-<h3>Changes</h3><p>We may update these terms. Using the service after a change means you accept it.</p>
-</div></section>
-<footer class="ftr"><div class="ftr-grid"><div class="ftr-brand"><a class="logo" href="#home"><span class="lg">🖨️</span><span>Chat Printer</span></a><p>Turn WhatsApp chats into PDF, PNG and HTML. Private by design: conversion happens in your browser.</p></div>
-<div><h4>Product</h4><a href="#home" data-scroll="tool">Convert a chat</a><a href="#home" data-scroll="features">Features</a><a href="#billing">Plans and billing</a></div>
+<footer class="ftr"><div class="ftr-grid"><div class="ftr-brand"><a class="logo" href="/#home" aria-label="Chat Printer home"><img src="/img/logo-icon-white.png" alt="" width="40" height="28"><span class="wm"><b>CHAT</b>PRINTER</span></a><p>Turn WhatsApp chats into PDF, PNG and HTML. Private by design: conversion happens in your browser.</p></div>
+<div><h4>Product</h4><a href="#home" data-scroll="tool">Convert a chat</a><a href="#home" data-scroll="features">Features</a><a href="#billing">Plans and billing</a><a href="/guides">Guides</a></div>
 <div><h4>Support</h4><a href="#contact">Contact</a><a href="#contact" data-scroll="help">Help center</a><button class="linkbtn" id="fwa">WhatsApp support</button></div>
-<div><h4>Legal</h4><a href="#privacy">Privacy Policy</a><a href="#terms">Terms of Use</a></div></div>
+<div><h4>Legal</h4><a href="/privacy">Privacy Policy</a><a href="/terms">Terms of Use</a></div></div>
 <div class="ftr-bot"><span>© 2026 Chat Printer</span><span>Not affiliated with WhatsApp or Meta Platforms, Inc. WhatsApp is a trademark of Meta Platforms, Inc.</span></div></footer>
 <script defer src="/vendor/html2canvas.min.js"></script>
 <script defer src="/vendor/jszip.min.js"></script>
