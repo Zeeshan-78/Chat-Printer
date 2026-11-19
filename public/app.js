@@ -186,7 +186,7 @@
     head.appendChild(el('div','avatar',(title[0]||'C').toUpperCase()));
     const ht=el('div');
     ht.appendChild(el('div','t',title));
-    ht.appendChild(el('div','s',list.length+' messages'));
+    if(group){const names=senders.filter(s=>s!==me).concat(senders.includes(me)?['You']:[]).join(', ');ht.appendChild(el('div','s',names.length>90?names.slice(0,88)+'\u2026':names));}
     head.appendChild(ht); root.appendChild(head);
     const box=el('div','msgs'); root.appendChild(box);
 
@@ -296,6 +296,13 @@
     pro:{name:'Pro',price:450,maxBytes:GB,total:0,day:20,media:true,hot:1,pts:['Photos, voice notes and videos included','20 conversions per day, renewed the next day','Zip files up to 1 GB','Everything in Free']},
     ultra:{name:'Ultra Pro',price:750,maxBytes:0,total:0,day:0,media:true,pts:['Photos, voice notes and videos included','No file size limit','No daily limit','Everything in Pro']}
   };
+  const PAYNUM=Object.assign({JazzCash:PAY_NUMBER,Easypaisa:PAY_NUMBER,SadaPay:PAY_NUMBER},CFG.payNumbers||{});
+  const PRICE_TABLE=CFG.prices||{PKR:{pro:450,ultra:750},USD:{pro:3.99,ultra:6.99},EUR:{pro:3.99,ultra:6.99},GBP:{pro:3.49,ultra:5.99},SAR:{pro:14.99,ultra:24.99},AED:{pro:14.99,ultra:24.99},CNY:{pro:28,ultra:48},INR:{pro:299,ultra:499}};
+  const CURNAMES={PKR:'Pakistani rupee',USD:'US dollar',EUR:'Euro',GBP:'British pound',SAR:'Saudi riyal',AED:'UAE dirham',CNY:'Chinese yuan',INR:'Indian rupee'};
+  const fmtMoney=(c,n)=>{try{return new Intl.NumberFormat('en',{style:'currency',currency:c,minimumFractionDigits:Number.isInteger(n)?0:2,maximumFractionDigits:2}).format(n);}catch(e){return c+' '+n;}};
+  const lsGet=k=>{try{return localStorage.getItem(k);}catch(e){return null;}}, lsSet=(k,v)=>{try{localStorage.setItem(k,v);}catch(e){}};
+  const tzGuess=()=>{let z='';try{z=Intl.DateTimeFormat().resolvedOptions().timeZone||'';}catch(e){}return z==='Asia/Karachi'?'PKR':z==='Asia/Riyadh'?'SAR':z==='Asia/Dubai'?'AED':z==='Asia/Shanghai'?'CNY':z==='Asia/Kolkata'||z==='Asia/Calcutta'?'INR':z==='Europe/London'?'GBP':/^Europe\//.test(z)?'EUR':'USD';};
+  let cur=PRICE_TABLE[lsGet('cp_cur')]?lsGet('cp_cur'):tzGuess(), curNote='';
   const AW=window.Appwrite, awOk=!!AW&&!APPWRITE_PROJECT_ID.startsWith('YOUR-')&&!FUNCTION_ID.startsWith('YOUR-');
   const client=awOk?new AW.Client().setEndpoint(APPWRITE_ENDPOINT).setProject(APPWRITE_PROJECT_ID):null;
   const account=client&&new AW.Account(client), fns=client&&new AW.Functions(client);
@@ -305,6 +312,70 @@
   const initials=n=>((n||'?').trim().split(/\s+/).map(x=>x[0]).join('').slice(0,2)||'?').toUpperCase();
   const fmtDate=iso=>{try{return new Date(iso).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'});}catch(e){return '';}};
   const shortDate=iso=>{try{return new Date(iso).toLocaleDateString(undefined,{day:'numeric',month:'short'});}catch(e){return '';}};
+  const EYE_ON='<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+  const EYE_OFF='<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.9 17.9A10.9 10.9 0 0112 20C5 20 1 12 1 12a18.5 18.5 0 015.1-5.9M9.9 4.2A10.7 10.7 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.2 3.2M1 1l22 22"/><path d="M14.1 14.1a3 3 0 11-4.2-4.2"/></svg>';
+  const COMMON=['password','123456','12345678','qwerty','abc123','111111','iloveyou','admin','welcome','letmein','pakistan','whatsapp','chatprinter','1234567890','qwertyuiop','000000','123123','dragon','monkey','football'];
+  function pwCheck(p,email){
+    const low=p.toLowerCase(),local=(email||'').split('@')[0].toLowerCase();
+    const kinds=[/[a-z]/,/[A-Z]/,/\d/,/[^A-Za-z0-9]/].filter(r=>r.test(p)).length;
+    let s=(p.length>=8?1:0)+(p.length>=12?1:0)+(p.length>=16?1:0)+(kinds>=3?1:0)+(kinds===4?1:0);
+    const bad=COMMON.some(c=>low.includes(c))||(local.length>=3&&low.includes(local))||/(.)\1{3,}/.test(p)||/(0123|1234|2345|3456|4567|5678|6789|abcd|qwer|asdf|zxcv)/i.test(p);
+    if(bad)s=Math.min(s,1);
+    const tips=[];
+    if(p.length<12)tips.push('use 12 or more characters');
+    if(!/[a-z]/.test(p)||!/[A-Z]/.test(p))tips.push('mix upper and lower case');
+    if(!/\d/.test(p))tips.push('add a number');
+    if(!/[^A-Za-z0-9]/.test(p))tips.push('add a symbol');
+    if(bad)tips.push('avoid common words, your name or email, repeated or sequential characters');
+    const label=p.length===0?'':s<=1?'Too weak':s===2?'Fair':s<=4?'Good':'Strong';
+    const ok=p.length>=8&&s>=3&&!bad;
+    return{score:s,label,ok,tips,msg:'Choose a stronger password: '+(tips.join(', ')||'make it longer')+'.'};
+  }
+  function genPw(){
+    const sets=['abcdefghijkmnopqrstuvwxyz','ABCDEFGHJKLMNPQRSTUVWXYZ','23456789','!@#$%^&*-_+=?'],all=sets.join(''),r=new Uint32Array(40);
+    crypto.getRandomValues(r);
+    const out=sets.map((s,i)=>s[r[i]%s.length]);
+    for(let i=4;i<18;i++)out.push(all[r[i]%all.length]);
+    for(let i=out.length-1;i>0;i--){const k=r[20+i]%(i+1);[out[i],out[k]]=[out[k],out[i]];}
+    return out.join('');
+  }
+  function enhancePw(){
+    document.querySelectorAll('input[type=password]').forEach(inp=>{
+      const w=document.createElement('div');w.className='pwrap';inp.parentNode.insertBefore(w,inp);w.appendChild(inp);
+      const b=document.createElement('button');b.type='button';b.className='eye';b.setAttribute('aria-label','Show password');b.innerHTML=EYE_ON;
+      b.addEventListener('click',()=>{const show=inp.type==='password';inp.type=show?'text':'password';b.innerHTML=show?EYE_OFF:EYE_ON;b.setAttribute('aria-label',show?'Hide password':'Show password');});
+      w.appendChild(b);
+      if(inp.dataset.strength===undefined)return;
+      const m=document.createElement('div');m.className='pwmeter';m.appendChild(document.createElement('i'));
+      const hint=document.createElement('div');hint.className='pwhint';hint.textContent='Use 12 or more characters with upper and lower case, a number and a symbol.';
+      const g=document.createElement('button');g.type='button';g.className='alt sm gen';g.textContent='Suggest a strong password';
+      w.after(m,hint,g);
+      inp.addEventListener('input',()=>{
+        const c=pwCheck(inp.value,user&&user.email);
+        m.firstChild.style.width=(c.score/5*100)+'%';m.dataset.lv=String(c.label);
+        hint.textContent=inp.value?(c.label+(c.ok?'. Looks good.':'. '+c.tips.join(', ')+'.')):'Use 12 or more characters with upper and lower case, a number and a symbol.';
+      });
+      g.addEventListener('click',()=>{
+        const v=genPw(),peer=$('#'+inp.dataset.peer);inp.value=v;if(peer)peer.value=v;
+        inp.type='text';if(peer)peer.type='text';inp.dispatchEvent(new Event('input'));
+      });
+    });
+  }
+  function setCur(c,save){
+    if(!PRICE_TABLE[c])return;
+    cur=c;if(save)lsSet('cp_cur',c);
+    ['curpick','curpick2','pref_cur'].forEach(id=>{const s=document.getElementById(id);if(s)s.value=c;});
+    ['curnote','curnote2'].forEach(id=>{const n=document.getElementById(id);if(n)n.textContent=curNote;});
+    planCards($('#plans'),true);planCards($('#planprev'),false);
+  }
+  async function detectCur(){
+    if(lsGet('cp_cur')||!account)return;
+    try{
+      const l=await new AW.Locale(client).get(),cc=l.countryCode;
+      const c=cc==='PK'?'PKR':cc==='GB'?'GBP':l.eu?'EUR':cc==='SA'?'SAR':cc==='AE'?'AED':cc==='CN'?'CNY':cc==='IN'?'INR':'USD';
+      curNote=l.country?'Detected location: '+l.country+'.':'';setCur(c,false);
+    }catch(e){}
+  }
   function paintAv(node,u){
     node.replaceChildren();
     const a=u&&u.prefs&&u.prefs.avatar;
@@ -318,10 +389,27 @@
     }catch(e){return{ok:false,reason:'Could not reach the server.'};}
   }
   function go(view,scrollId){pendScroll=scrollId||null;if((location.hash||'#home')==='#'+view)route();else location.hash=view;}
+  function receipt(x){
+    const w=window.open('','_blank');if(!w)return;
+    const d=w.document,amt=fmtMoney(x.currency||'PKR',(x.amountCents||0)/100);
+    d.title='Chat Printer receipt';
+    const st=d.createElement('style');st.textContent='body{font-family:system-ui,sans-serif;max-width:520px;margin:40px auto;padding:0 20px;color:#111b21}h1{font-size:22px;color:#075e54;margin:0 0 4px}small{color:#667781}table{width:100%;border-collapse:collapse;margin-top:18px}td{padding:9px 0;border-bottom:1px solid #ddd}td:first-child{color:#667781;width:40%}';
+    d.head.appendChild(st);
+    const h=d.createElement('h1');h.textContent='Chat Printer';const s=d.createElement('small');s.textContent='Payment receipt';
+    const t=d.createElement('table');
+    [['Plan',(PLANS[x.plan]||{}).name+' (30 days)'],['Amount',amt],['Method',x.method||''],['Transaction ID',x.tid||''],['Date',fmtDate(x.created)],['Account',(user&&(user.email||user.name))||''],['Status',x.status]].forEach(([a,b])=>{const r=d.createElement('tr'),c1=d.createElement('td'),c2=d.createElement('td');c1.textContent=a;c2.textContent=b;r.append(c1,c2);t.appendChild(r);});
+    d.body.append(h,s,t);w.focus();setTimeout(()=>w.print(),100);
+  }
   async function loadPay(){
     const r=await api('my_payments');
     if(!r.ok||!r.rows.length)return;
-    $('#mypay').replaceChildren(...r.rows.map(x=>{const d=el('div','arow'),m=el('div','grow',x.plan+' \u00b7 '+x.tid);d.append(m,el('span','chip '+x.status,x.status));return d;}));
+    $('#mypay').replaceChildren(...r.rows.map(x=>{
+      const d=el('div','arow'),m=el('div','grow');
+      m.append(el('b',null,(PLANS[x.plan]||{}).name||x.plan),el('small',null,fmtMoney(x.currency||'PKR',(x.amountCents||0)/100)+' \u00b7 '+(x.method||'')+' \u00b7 TID '+(x.tid||'')+' \u00b7 '+shortDate(x.created)));
+      d.append(m,el('span','chip '+x.status,x.status));
+      if(x.status==='approved'){const b=el('button','alt sm','Receipt');b.addEventListener('click',()=>receipt(x));d.appendChild(b);}
+      return d;
+    }));
   }
   function cpBar(){
     const signed=!!user;let t,P=null;
@@ -341,14 +429,14 @@
     $('#plantext').textContent=t;
     if(!signed)return;
     paintAv($('#avbig'),user);paintAv($('#avprev'),user);
-    $('#pname2').textContent=user.name||'Add your name';$('#pemail').textContent=user.email||'';
+    $('#pname2').textContent=user.name||'Add your name';$('#pemail').textContent=user.email||'Signed in without an email';
     const b=$('#pbadge');b.textContent=P?P.name+' plan':'...';b.className='badge '+(st?st.plan:'');
     $('#pexp').textContent=st&&st.plan!=='free'?'Valid until '+fmtDate(st.expires_at):'';
     $('#finish').hidden=!needPw;
-    $('#pw_oldrow').hidden=!user.passwordUpdate;$('#pw_h').textContent=user.passwordUpdate?'Change password':'Set a password';
+    $('#pwcard').hidden=!user.email;$('#pw_oldrow').hidden=!user.passwordUpdate;$('#pw_h').textContent=user.passwordUpdate?'Change password':'Set a password';
     if(document.activeElement!==$('#pf_name'))$('#pf_name').value=user.name||'';
     if(document.activeElement!==$('#pf_phone'))$('#pf_phone').value=(user.prefs&&user.prefs.phone)||'';
-    $('#pf_email').value=user.email||'';
+    $('#pf_email').value=user.email||'(none)';
     const u=$('#usage');u.replaceChildren();
     if(P){
       if(P.total||P.day){
@@ -366,7 +454,8 @@
     if(user){
       st=await api('status');
       if(!st.ok){cpErr=st.reason||'Could not load your plan.';st=null;}else cpErr='';
-      cpBar();loadPay();
+      cpBar();loadPay();loadSessions();
+      if(user.prefs&&PRICE_TABLE[user.prefs.currency]&&user.prefs.currency!==cur)setCur(user.prefs.currency,false);
       if(st&&st.is_admin){atab(aTab);if(st.setup_needed)say('#adm','The database is not set up yet. Open the Database tab and press "Run database setup".');}
     }
     loading=false;route();
@@ -423,7 +512,7 @@
   });
   $('#dors').addEventListener('click',async()=>{
     const p=$('#rs_pw').value,p2=$('#rs_pw2').value;
-    if(p.length<8)return amsg('Use at least 8 characters.');
+    const pc=pwCheck(p,'');if(!pc.ok)return amsg(pc.msg);
     if(p!==p2)return amsg('The two passwords do not match.');
     if(!resetCtx)return amsg('This reset link is not valid. Request a new one.');
     try{await account.updateRecovery({userId:resetCtx.uid,secret:resetCtx.sec,password:p});resetCtx=null;$('#rs_pw').value=$('#rs_pw2').value='';showPane('paneIn');amsg('Password updated. Sign in with your new password.');}
@@ -433,6 +522,7 @@
   $('#gbtn').addEventListener('click',social('Google'));
   $('#fbtn').addEventListener('click',social('Facebook'));
   $('#hbtn').addEventListener('click',social('Github'));
+  $('#tbtn').addEventListener('click',social('Tiktok'));
   $('#signout').addEventListener('click',async()=>{try{if(account)await account.deleteSession({sessionId:'current'});}catch(e){}needPw=false;await cpRefresh();location.hash='home';});
   $('#signoutall').addEventListener('click',async()=>{try{if(account)await account.deleteSessions();}catch(e){}needPw=false;await cpRefresh();location.hash='home';});
   $('#pf_save').addEventListener('click',async()=>{
@@ -449,7 +539,7 @@
   $('#pw_save').addEventListener('click',async()=>{
     const o=$('#pw_old').value,n=$('#pw_new').value,n2=$('#pw_new2').value;
     if(!user)return;
-    if(n.length<8)return say('#pw_s','Use at least 8 characters.');
+    const pc=pwCheck(n,user.email);if(!pc.ok)return say('#pw_s',pc.msg);
     if(n!==n2)return say('#pw_s','The two passwords do not match.');
     if(user.passwordUpdate&&!o)return say('#pw_s','Enter your current password.');
     try{
@@ -477,13 +567,19 @@
     if(!user)return;const p=Object.assign({},user.prefs||{});delete p.avatar;
     try{await account.updatePrefs({prefs:p});say('#pf_s','Photo removed.');await cpRefresh();}catch(err){say('#pf_s','Could not remove the photo.');}
   });
-  const PKR=n=>'PKR '+Number(n||0).toLocaleString('en-US');
+  const csvCell=v=>{let s=String(v==null?'':v);if(/^[=+\-@\t\r]/.test(s))s="'"+s;return '"'+s.replace(/"/g,'""')+'"';};
+  function download(name,text,type){const b=new Blob([text],{type}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),4000);}
   async function loadStats(){
-    const r=await api('admin_stats');
+    const [r,rv]=await Promise.all([api('admin_stats'),api('admin_revenue')]);
     if(!r.ok){say('#adm',r.reason||'');return;}
-    const items=[['Users',r.users==null?'n/a':r.users],['Active paid plans',r.active],['Pending payments',r.pending],['Approved payments',r.approved],['Estimated revenue',PKR(r.revenue)]];
+    const items=[['Users',r.users==null?'n/a':r.users],['Active paid plans',r.active],['Pending payments',r.pending],['Approved payments',r.approved]];
     $('#stats').replaceChildren(...items.map(([a,b])=>{const d=el('div','stat');d.append(el('b',null,String(b)),el('span',null,a));return d;}));
-    $('#statnote').textContent=(r.users==null?'The user count needs the users.read scope on the function. ':'')+'Revenue is an estimate: approved payments times the plan price.';
+    const days=[];for(let i=29;i>=0;i--){const d=new Date(Date.now()-i*864e5).toISOString().slice(0,10);days.push([d,((rv&&rv.days)||{})[d]||0]);}
+    const max=Math.max(1,...days.map(x=>x[1]));
+    $('#chart').replaceChildren(...days.map(([d,n])=>{const c=el('div','bar'),i=document.createElement('i');i.style.height=Math.max(3,n/max*100)+'%';c.title=d+': '+n;c.appendChild(i);return c;}));
+    const tot=(rv&&rv.totals)||{};
+    $('#revnote').textContent='Revenue, last 30 days: '+(Object.keys(tot).map(k=>fmtMoney(k,tot[k]/100)).join(' \u00b7 ')||'none yet')+'. Bars show approved payments per day.';
+    $('#statnote').textContent=r.users==null?'The user count needs the users.read scope on the function.':'';
   }
   async function loadPayments(){
     const r=await api('admin_payments',{status:$('#pfilter').value}),box=$('#pend');
@@ -491,8 +587,8 @@
     if(!r.rows.length){box.replaceChildren(el('div','sub','Nothing here.'));return;}
     box.replaceChildren(...r.rows.map(x=>{
       const row=el('div','arow'),main=el('div','grow');
-      main.append(el('b',null,x.name),el('small',null,x.plan+' \u00b7 '+x.method+' \u00b7 TID '+x.tid+' \u00b7 '+shortDate(x.created)));
-      row.append(main,el('span','chip '+x.status,x.status));
+      main.append(el('b',null,x.name),el('small',null,(PLANS[x.plan]||{}).name+' \u00b7 '+fmtMoney(x.currency,x.amountCents/100)+' \u00b7 '+x.method+' \u00b7 TID '+x.tid+' \u00b7 '+shortDate(x.created)));
+      row.append(main,el('span','chip',x.source),el('span','chip '+x.status,x.status));
       if(x.status==='pending'){
         const a=el('button','sm','Approve'),b=el('button','alt sm','Reject');
         const act=d=>async()=>{const z=await api('admin_decide',{id:x.id,decision:d});say('#adm',z.ok?'Done.':(z.reason||'Failed.'));loadPayments();loadStats();};
@@ -508,27 +604,42 @@
     $('#uprev').disabled=uOff<=0;$('#unext').disabled=uOff+r.rows.length>=r.total;
     box.replaceChildren(...r.rows.map(x=>{
       const row=el('div','arow'),main=el('div','grow');
-      main.append(el('b',null,x.name||'(no name)'),el('small',null,x.email+(x.phone?' \u00b7 '+x.phone:'')+(x.verified?'':' \u00b7 not verified')),el('small',null,'Joined '+shortDate(x.created)+' \u00b7 '+x.total_used+' free conversions used'));
+      main.append(el('b',null,x.name||'(no name)'),el('small',null,(x.email||'(no email)')+(x.phone?' \u00b7 '+x.phone:'')+(x.verified?'':' \u00b7 not verified')),el('small',null,'Joined '+shortDate(x.created)+' \u00b7 '+x.total_used+' free conversions used'));
       row.append(el('span','av',initials(x.name||x.email)),main,el('span','chip '+(x.plan==='free'?'':'approved'),x.plan==='free'?'Free':PLANS[x.plan].name+(x.expires_at?' until '+shortDate(x.expires_at):'')));
-      [['Pro 30d','pro'],['Ultra 30d','ultra'],['Free','free']].forEach(([lab,pl])=>{
+      [['Grant Pro','pro'],['Grant Ultra','ultra'],['End plan now','free']].forEach(([lab,pl])=>{
         const b=el('button','alt sm',lab);
         b.addEventListener('click',async()=>{
-          if(!confirm('Set '+(x.email||x.id)+' to '+PLANS[pl].name+(pl==='free'?'':' for 30 days')+'?'))return;
-          const z=await api('admin_set_plan',{userId:x.id,plan:pl,days:30});say('#adm',z.ok?'Plan updated.':(z.reason||'Failed.'));loadUsers();
+          const days=Math.max(1,Math.min(3650,Number($('#ugdays').value)||30));
+          if(!confirm((pl==='free'?'End the plan of ':'Give '+PLANS[pl].name+' for '+days+' days to ')+(x.email||x.name||x.id)+'?'))return;
+          const z=await api('admin_set_plan',{userId:x.id,plan:pl,days});say('#adm',z.ok?'Plan updated.':(z.reason||'Failed.'));loadUsers();
         });
         row.appendChild(b);
       });
       return row;
     }));
   }
+  async function loadAuto(){
+    const r=await api('admin_automation'),box=$('#autobox'),list=$('#smslist');
+    if(!r.ok){say('#adm',r.reason||'');return;}
+    box.replaceChildren(el('h3',null,'Automatic payments'));
+    [['Pakistan wallets (payment SMS)',r.sms_enabled?'On':'Off: set SMS_SECRET'],['Card payments (checkout)',r.paddle_ready?'Ready ('+r.paddle_env+')':'Not set up'],['Card payment webhook',r.paddle_webhook?'Configured':'Not set up']].forEach(([a,b])=>{const d=el('div','fact');d.append(el('span',null,a),el('span',null,b));box.appendChild(d);});
+    list.replaceChildren(...(r.sms.length?r.sms.map(x=>{const row=el('div','arow'),m=el('div','grow',x.text);m.appendChild(el('small',null,shortDate(x.created)));row.append(m,el('span','chip '+(x.matched?'approved':''),x.matched?'matched':'no match'));return row;}):[el('div','sub','No payment SMS received yet.')]));
+  }
   function atab(t){
     aTab=t;
     document.querySelectorAll('[data-at]').forEach(b=>b.classList.toggle('on',b.dataset.at===t));
-    ['ov','pay','usr','db'].forEach(x=>{$('#at-'+x).hidden=x!==t;});
-    ({ov:loadStats,pay:loadPayments,usr:loadUsers,db:()=>{}})[t]();
+    ['ov','pay','usr','auto','db'].forEach(x=>{$('#at-'+x).hidden=x!==t;});
+    ({ov:loadStats,pay:loadPayments,usr:loadUsers,auto:loadAuto,db:()=>{}})[t]();
   }
   document.querySelectorAll('[data-at]').forEach(b=>b.addEventListener('click',()=>{say('#adm','');atab(b.dataset.at);}));
   $('#prefresh').addEventListener('click',loadPayments);$('#pfilter').addEventListener('change',loadPayments);
+  $('#pcsv').addEventListener('click',async()=>{
+    const r=await api('admin_payments',{status:$('#pfilter').value,limit:500});
+    if(!r.ok)return say('#adm',r.reason||'Failed.');
+    const head=['date','name','plan','amount','currency','method','tid','status','source','user_id'];
+    download('payments.csv',[head.join(',')].concat(r.rows.map(x=>[x.created,x.name,x.plan,(x.amountCents/100).toFixed(2),x.currency,x.method,x.tid,x.status,x.source,x.userId].map(csvCell).join(','))).join('\n'),'text/csv');
+    say('#adm','Exported '+r.rows.length+' rows.');
+  });
   $('#ugo').addEventListener('click',()=>{uOff=0;loadUsers();});
   $('#usearch').addEventListener('keydown',e=>{if(e.key==='Enter'){uOff=0;loadUsers();}});
   $('#uprev').addEventListener('click',()=>{uOff=Math.max(0,uOff-25);loadUsers();});
@@ -538,6 +649,37 @@
     const r=await api('admin_setup');
     say('#adm',r.ok?(r.note+' '+r.log.filter(l=>!l.includes('already')).join(' | ')):(r.reason||'Failed.'));
   });
+  async function loadSessions(){
+    const box=$('#sessions');if(!account||!user)return;
+    try{
+      const r=await account.listSessions();
+      box.replaceChildren(...r.sessions.map(s=>{
+        const row=el('div','arow'),m=el('div','grow');
+        m.append(el('b',null,(s.clientName||'Browser')+' on '+(s.osName||'a device')),el('small',null,(s.countryName||'Unknown location')+' \u00b7 '+shortDate(s.$createdAt)+(s.current?' \u00b7 this device':'')));
+        row.appendChild(m);
+        if(!s.current){const b=el('button','alt sm','Sign out');b.addEventListener('click',async()=>{try{await account.deleteSession({sessionId:s.$id});}catch(e){}loadSessions();});row.appendChild(b);}
+        return row;
+      }));
+    }catch(e){box.replaceChildren(el('div','sub','Could not load your devices.'));}
+  }
+  $('#sess_refresh').addEventListener('click',loadSessions);
+  $('#dl_data').addEventListener('click',async()=>{
+    if(!user)return;const pr=await api('my_payments');
+    download('chat-printer-my-data.json',JSON.stringify({exported:new Date().toISOString(),profile:{id:user.$id,name:user.name,email:user.email,phone:(user.prefs||{}).phone||'',registered:user.registration,hasPhoto:!!(user.prefs&&user.prefs.avatar)},plan:st,payments:pr.rows||[]},null,2),'application/json');
+    say('#data_s','Downloaded.');
+  });
+  $('#deact').addEventListener('click',async()=>{
+    if(!user)return;
+    if($('#deact_in').value.trim()!=='DEACTIVATE')return say('#data_s','Type DEACTIVATE to confirm.');
+    if(!confirm('Deactivate your account? You will be signed out and cannot sign in again unless support re-enables it.'))return;
+    try{await account.updateStatus();}catch(e){return say('#data_s','Could not deactivate: '+((e&&e.message)||'error'));}
+    try{await account.deleteSession({sessionId:'current'});}catch(e){}
+    needPw=false;await cpRefresh();location.hash='home';
+  });
+  const onCur=e=>{setCur(e.target.value,true);if(user)account.updatePrefs({prefs:Object.assign({},user.prefs||{},{currency:cur})}).catch(()=>{});};
+  Object.keys(CURNAMES).forEach(c=>['curpick','curpick2','pref_cur'].forEach(id=>{const s=document.getElementById(id),o=document.createElement('option');o.value=c;o.textContent=c+' \u00b7 '+CURNAMES[c];s.appendChild(o);}));
+  ['curpick','curpick2','pref_cur'].forEach(id=>document.getElementById(id).addEventListener('change',onCur));
+  enhancePw();
   async function boot(){
     const q=new URLSearchParams(location.search),uid=q.get('userId'),sec=q.get('secret');
     if(account&&uid&&sec){
@@ -549,10 +691,12 @@
     await cpRefresh();
   }
   boot();
+  detectCur();
   let sel='';
+  const priceOf=(id,c)=>((PRICE_TABLE[c||cur]||PRICE_TABLE.USD)[id]);
   function planCards(box,pay){
     box.replaceChildren(...Object.entries(PLANS).map(([id,p])=>{
-      const c=el('div','plan'+(p.hot?' hot':'')),pr=el('div','price','PKR '+p.price),ul=el('ul');
+      const c=el('div','plan'+(p.hot?' hot':'')),pr=el('div','price',id==='free'?fmtMoney(cur,0):fmtMoney(cur,priceOf(id)||0)),ul=el('ul');
       if(p.hot)c.appendChild(el('span','ribbon','Most popular'));
       pr.appendChild(el('small',null,id==='free'?' forever':' / month'));
       p.pts.forEach(t=>ul.appendChild(el('li',null,t)));
@@ -560,14 +704,30 @@
       b.addEventListener('click',()=>{
         if(id==='free'){go('home','tool');return;}
         if(!pay){go('billing');return;}
-        sel=id;$('#paytitle').textContent=p.name+' \u2014 PKR '+p.price+' / month';$('#payamt').textContent='PKR '+p.price;$('#paynum').textContent=PAY_NUMBER;
-        $('#pay').hidden=false;$('#pay').scrollIntoView({behavior:'smooth'});
+        sel=id;$('#paytitle').textContent=p.name+' \u2014 '+fmtMoney(cur,priceOf(id)||0)+' / month';
+        $('#payamt').textContent='PKR '+PRICE_TABLE.PKR[id];$('#paynum').textContent=PAYNUM[$('#pmeth').value]||PAY_NUMBER;
+        payTab(cur==='PKR'?'local':'card');$('#pay').hidden=false;$('#pay').scrollIntoView({behavior:'smooth'});
       });
       c.append(el('h3',null,p.name),pr,ul,b);return c;
     }));
   }
+  function payTab(t){
+    $('#paycard').hidden=t!=='card';$('#paylocal').hidden=t!=='local';
+    $('#tabcard').classList.toggle('on',t==='card');$('#tablocal').classList.toggle('on',t==='local');
+  }
+  $('#tabcard').addEventListener('click',()=>payTab('card'));$('#tablocal').addEventListener('click',()=>payTab('local'));
+  $('#pmeth').addEventListener('change',()=>{$('#paynum').textContent=PAYNUM[$('#pmeth').value]||PAY_NUMBER;});
+  $('#paycardgo').addEventListener('click',async()=>{
+    const s=$('#pcs');
+    if(!sel){s.textContent='Choose a plan first.';return;}
+    if(!user){s.textContent='Sign in first so the plan goes to your account.';location.hash='account';return;}
+    s.textContent='Opening secure checkout...';
+    const r=await api('create_checkout',{plan:sel});
+    if(!r.ok){s.textContent=r.reason||'Could not start the payment.';return;}
+    location.href=r.url;
+  });
   planCards($('#plans'),true);planCards($('#planprev'),false);
-  $('#copy').addEventListener('click',()=>{try{navigator.clipboard.writeText(PAY_NUMBER);$('#copy').textContent='Copied';}catch(e){}});
+  $('#copy').addEventListener('click',()=>{try{navigator.clipboard.writeText(PAYNUM[$('#pmeth').value]||PAY_NUMBER);$('#copy').textContent='Copied';}catch(e){}});
   $('#pwa').addEventListener('click',async()=>{
     const t=$('#ptid').value.trim(),n=$('#pname').value.trim(),ps=$('#ps');
     if(!sel||!t||!n){ps.textContent='Choose a plan, then enter your name and the Transaction ID.';return;}
@@ -575,9 +735,10 @@
     if(!/^[A-Za-z0-9-]{6,30}$/.test(t)){ps.textContent='Check the Transaction ID (6-30 letters or digits).';return;}
     const r=await api('submit_payment',{plan:sel,method:$('#pmeth').value,tid:t,name:n});
     if(!r.ok){ps.textContent=r.reason||'Could not save the payment. Try again.';return;}
-    const p=PLANS[sel],msg='Chat Printer payment\nPlan: '+p.name+' (PKR '+p.price+'/month)\nMethod: '+$('#pmeth').value+'\nTransaction ID: '+t+'\nName: '+n+'\nAccount: '+(user.email||user.$id);
+    if(r.activated){ps.textContent='Payment confirmed. Your plan is active.';cpRefresh();loadPay();return;}
+    const p=PLANS[sel],msg='Chat Printer payment\nPlan: '+p.name+' (PKR '+PRICE_TABLE.PKR[sel]+'/month)\nMethod: '+$('#pmeth').value+'\nTransaction ID: '+t+'\nName: '+n+'\nAccount: '+(user.email||user.$id);
     const a=el('a',null,'Send the proof on WhatsApp to speed up approval');a.href='https://wa.me/'+WA+'?text='+encodeURIComponent(msg);a.target='_blank';a.rel='noopener noreferrer';
-    ps.replaceChildren('Payment submitted. It activates on your account after verification. ',a);loadPay();
+    ps.replaceChildren('Payment submitted. We could not match it automatically yet, so it will be checked by hand. ',a);loadPay();
   });
   $('#mail').textContent=SUPPORT_EMAIL;$('#mail').href='mailto:'+SUPPORT_EMAIL;
   $('#wasup').addEventListener('click',()=>window.open('https://wa.me/'+WA+'?text='+encodeURIComponent('Hi, I need help with Chat Printer.'),'_blank','noopener'));
@@ -587,7 +748,7 @@
     location.href='mailto:'+SUPPORT_EMAIL+'?subject='+encodeURIComponent('Chat Printer: '+n)+'&body='+encodeURIComponent(m+'\n\n\u2014 '+n+' ('+e+')');
     $('#cs').textContent='Opening your email app...';
   });
-  const views=['home','contact','billing','account','admin','privacy','terms'];
+  const views=['home','contact','billing','account','admin'];
   let curView='';
   const rvio=typeof IntersectionObserver!=='undefined'?new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('show');rvio.unobserve(e.target);}}),{threshold:.12}):null;
   function reveal(){document.querySelectorAll('.rv:not(.show)').forEach(n=>{if(rvio)rvio.observe(n);else n.classList.add('show');});}
