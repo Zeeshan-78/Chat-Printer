@@ -1,0 +1,67 @@
+{
+  "manifest_version": 3,
+  "name": "Chat Printer Exporter",
+  "version": "1.2.0",
+  "description": "Save the chat you have open on Messenger, Instagram, X, Telegram Web, LinkedIn or Discord as HTML, TXT or JSON, with or without media. Runs in your browser; nothing is uploaded.",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "*://*.facebook.com/*",
+    "*://*.messenger.com/*",
+    "*://*.instagram.com/*",
+    "*://x.com/*",
+    "*://*.x.com/*",
+    "*://twitter.com/*",
+    "*://*.twitter.com/*",
+    "*://web.telegram.org/*",
+    "*://*.linkedin.com/*",
+    "*://discord.com/*",
+    "*://*.fbcdn.net/*",
+    "*://*.fbsbx.com/*",
+    "*://*.cdninstagram.com/*",
+    "*://*.twimg.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Chat Printer Exporter",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.facebook.com/*",
+        "*://*.messenger.com/*",
+        "*://*.instagram.com/*",
+        "*://x.com/*",
+        "*://*.x.com/*",
+        "*://twitter.com/*",
+        "*://*.twitter.com/*",
+        "*://web.telegram.org/*",
+        "*://*.linkedin.com/*",
+        "*://discord.com/*"
+      ],
+      "js": [
+        "zip.js",
+        "brand.js",
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "homepage_url": "https://chatprinter.vercel.app/extension",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
