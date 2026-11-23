@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header class="top">
+    <img src="icons/logo-white.png" alt="" width="40" height="28">
+    <div><span class="wm"><b>CHAT</b>PRINTER</span><small>Chat Exporter</small></div>
+  </header>
+  <main>
+    <p class="sub">Open the chat you want, then export it.</p>
+
+    <label>Format
+      <select id="format">
+        <option value="html">HTML (looks like a chat)</option>
+        <option value="txt">TXT (WhatsApp style)</option>
+        <option value="json">JSON</option>
+      </select>
+    </label>
+
+    <label>Media
+      <select id="media">
+        <option value="no">Without media (text only)</option>
+        <option value="yes">With media (ZIP: chat + photos/videos)</option>
+      </select>
+    </label>
+
+    <label>Look of exported chat
+      <select id="theme">
+        <option value="cp-light">Chat Printer, light (WhatsApp look)</option>
+        <option value="cp-dark">Chat Printer, dark</option>
+        <option value="auto">Same as the platform (auto)</option>
+        <option value="light">Platform style, light</option>
+        <option value="dark">Platform style, dark</option>
+      </select>
+    </label>
+
+    <label class="check"><input type="checkbox" id="autoScroll" checked> Auto-scroll to load the full chat history</label>
+
+    <div class="two">
+      <label>My name <input id="me" placeholder="Me"></label>
+      <label>Other person <input id="other" placeholder="auto-detect"></label>
+    </div>
+
+    <button id="start" class="primary">Export this chat</button>
+    <div class="row">
+      <button id="detect">Test detection</button>
+      <button id="pick">Pick chat area manually</button>
+    </div>
+
+    <div id="status"></div>
+    <p class="foot">Everything stays in your browser. For WhatsApp chats use <a href="https://chatprinter.vercel.app" target="_blank" rel="noopener">Chat Printer</a>.</p>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>
