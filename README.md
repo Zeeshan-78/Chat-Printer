@@ -2,8 +2,7 @@
 
 Turn exported WhatsApp chats into a **PDF**, **PNG images** or **one self-contained HTML file** that keeps photos, voice notes and videos working. The chat is converted inside the visitor's browser and is never uploaded to a server.
 
-> Not affiliated with WhatsApp or Meta Platforms, Inc.</br>
-> Created by Zeeshan Ali
+> Not affiliated with WhatsApp or Meta Platforms, Inc.
 
 ## Features
 
@@ -17,6 +16,11 @@ Turn exported WhatsApp chats into a **PDF**, **PNG images** or **one self-contai
 - Date range filter: export only the messages between two dates
 - Accounts: email and password (new accounts confirm the email with a code), Google, Facebook and GitHub; profile with photo and phone number
 - User panel (profile, password, plan and usage, payments) and an admin panel (stats, payments, users, database)
+- Prices shown in the visitor's currency (detected from location, changeable)
+- Automatic payment checks (wallet SMS matching and card checkout with webhooks), with manual approval still available
+- Password eye toggle and strength meter, sessions and data download, receipts
+- SEO: guides, sitemap, structured data
+- Browser extension (Chat Printer Exporter) for Messenger, Instagram, X, Telegram Web, LinkedIn and Discord, with the same WhatsApp-style look, downloadable from /extension
 - Plans enforced on the server; manual billing through JazzCash and Easypaisa
 
 ## Plans
@@ -46,13 +50,24 @@ Conversion itself happens locally in the browser. The server only decides whethe
 ## Project structure
 
 ```
+extension/chat-printer-exporter/  the browser extension for other chat apps (see docs/EXTENSION.md)
 public/                      the website (static, no build step)
   index.html  app.js  config.js  style.css
   vendor/                    self-hosted libraries (JSZip, html2canvas, Appwrite Web SDK)
 appwrite/functions/api/      server function (Node.js): quotas, payments, admin actions
 docs/SETUP.md                step-by-step setup guide
+docs/PAYMENTS.md             which payment tools to use and why
+docs/HANDOFF.md              full project handoff: status, architecture, runbook, open items
+tools/set-domain.py          change the website address in SEO files
+tools/build-extension.py     pack the extension into public/downloads and update its download box
 vercel.json                  deployment settings and security headers
 ```
+
+## Getting started
+
+Follow [docs/SETUP.md](docs/SETUP.md). In short: create an Appwrite project, deploy the function, put your IDs in `public/config.js`, deploy the repository on Vercel, then press "Run database setup" in the admin box.
+
+To look at the site locally: `npx serve public`.
 
 ## Security notes
 
@@ -64,3 +79,7 @@ vercel.json                  deployment settings and security headers
 ## Third-party code
 
 JSZip, html2canvas and the Appwrite Web SDK are bundled under `public/vendor/` and keep their own licenses.
+
+## License
+
+Add a license before making the repository public (for example MIT). Until then, all rights are reserved.
