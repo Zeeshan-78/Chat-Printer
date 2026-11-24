@@ -256,3 +256,9 @@ button.eye:hover{color:var(--ink);transform:translateY(-50%)}
 .article .cta{display:inline-block;text-decoration:none;background:var(--accent);color:#fff;padding:12px 22px;border-radius:12px;font-weight:700}
 .guides{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-top:18px}.guides a{display:block;text-decoration:none;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;transition:transform .2s}.guides a:hover{transform:translateY(-3px)}.guides b{display:block;margin-bottom:4px}.guides span{color:var(--muted);font-size:14px}
 @media print{.chat .msgs{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+
+.extband{display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap;background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:28px}
+.extband h2{margin:0 0 6px}.extband p{margin:0;color:var(--muted);max-width:620px}
+.extband .cta{background:var(--accent);color:#fff;text-decoration:none;padding:13px 24px;border-radius:12px;font-weight:700;display:inline-block}
+
+.panel .ph{font-size:20px;margin:0 0 6px}
