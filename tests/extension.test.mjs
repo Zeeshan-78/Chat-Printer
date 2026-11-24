@@ -1,0 +1,52 @@
+import {createRequire} from 'node:module';import fs from 'node:fs';import path from 'node:path';
+const require=createRequire(import.meta.url);const {JSDOM}=require('jsdom');
+const X=new URL('../extension/chat-printer-exporter/',import.meta.url).pathname;
+const log=[];const ok=(c,m)=>log.push((c?'PASS ':'FAIL ')+m);const read=f=>fs.readFileSync(X+f,'utf8');
+const man=JSON.parse(read('manifest.json'));
+// ---- manifest
+ok(man.manifest_version===3&&man.name==='Chat Printer Exporter'&&/^\d+\.\d+\.\d+$/.test(man.version),'manifest: Manifest V3, branded name, numeric version '+man.version);
+ok(JSON.stringify(man.permissions)==='["storage"]','manifest: the only permission is "storage"');
+const hosts=[...man.host_permissions,...man.content_scripts.flatMap(s=>s.matches)];
+ok(hosts.every(h=>/^\*:\/\/(\*\.)?[a-z0-9.-]+\/\*$/.test(h))&&!hosts.some(h=>/all_urls|\*:\/\/\*\/\*/.test(h)),'manifest: site access limited to named hosts (no <all_urls>)');
+ok(!('web_accessible_resources' in man)&&!('externally_connectable' in man),'manifest: nothing exposed to web pages');
+const files=[man.background.service_worker,man.action.default_popup,...man.content_scripts.flatMap(s=>s.js),...Object.values(man.icons),...Object.values(man.action.default_icon),'popup.js','popup.css','icons/logo-white.png'];
+ok(files.every(f=>fs.existsSync(X+f)),'manifest: every referenced file exists');
+ok(man.content_scripts[0].js.join()==='zip.js,brand.js,content.js','manifest: scripts load in the right order (zip, brand, content)');
+// ---- static scan of all code
+const code=['background.js','content.js','popup.js','zip.js','brand.js'].map(f=>[f,read(f)]);
+const bad=/\beval\s*\(|new Function|sendBeacon|XMLHttpRequest|WebSocket|importScripts|document\.cookie|localStorage|sessionStorage/;
+ok(code.every(([f,t])=>!bad.test(t)),'code: no eval, beacons, sockets, cookies or page storage');
+const urls=code.flatMap(([f,t])=>[...t.matchAll(/https?:\/\/[^\s'"`)\\]+/g)].map(m=>[f,m[0]]));
+ok(urls.every(([f,u])=>/^https:\/\/chatprinter\.vercel\.app\/?$/.test(u)||f==='brand.js'||/^https:\/\/(www\.w3\.org)/.test(u)),'code: the only web address in the code is the Chat Printer site: '+JSON.stringify(urls.filter(([f,u])=>f!=='brand.js'&&!/chatprinter/.test(u)).slice(0,3)));
+ok(!/https?:\/\//.test(read('popup.html').replace(/https:\/\/chatprinter\.vercel\.app/g,'')),'popup: no other outside addresses');
+ok(/<option value="cp-light">/.test(read('popup.html'))&&/theme: 'cp-light'/.test(read('popup.js')),'popup: Chat Printer light is the default look');
+ok(/#008069/.test(read('popup.css'))&&/#00a884/.test(read('popup.css'))&&/prefers-color-scheme: dark/.test(read('popup.css')),'popup: WhatsApp green theme with a dark mode');
+// ---- content script in a fake page
+const dom=new JSDOM('<!doctype html><body></body>',{runScripts:'outside-only',url:'https://www.instagram.com/direct/t/1/'});const w=dom.window;
+w.chrome={runtime:{id:'x',onMessage:{addListener(){}},sendMessage:async()=>({ok:false})}};w.__CE_TEST_HOOK__=true;w.matchMedia=()=>({matches:false});
+w.eval(['zip.js','brand.js','content.js'].map(read).join('\n'));
+const T=w.__CE_TEST__;ok(!!T&&typeof T.toHTML==='function','content script loads and exposes its test hook only when asked');
+const cl=T.buildTheme(null,'cp-light'),cd=T.buildTheme(null,'cp-dark');
+ok(cl.hdrBg==='#008069'&&cl.meBg==='#d9fdd3'&&cl.bg==='#efeae2'&&cl.wp&&!cl.dark&&cd.hdrBg==='#202c33'&&cd.meBg==='#005c4b'&&cd.dark,'theme: Chat Printer light and dark match the website colours');
+const msgs=[{type:'sep',text:'12 November 2026'},{type:'msg',side:'other',text:'<img src=x onerror=alert(1)> hi',time:'10:15',media:[]},{type:'msg',side:'me',text:'ok & done',time:'10:16',media:[{type:'image',filename:'IMG_0001.jpg'},{type:'video',failed:true}]}];
+const html=T.toHTML(msgs,{theme:cl,me:'Me',other:'Sara <b>',withMedia:true});
+ok(!/<img src=x/.test(html)&&/&lt;img src=x/.test(html)&&/Sara &lt;b&gt;/.test(html)&&!/Sara <b>/.test(html),'export HTML: message text and names are escaped (no script injection)');
+ok(/class="tm">10:15</.test(html)&&/class="tm">10:16</.test(html)&&!/class="meta"/.test(html),'export HTML: WhatsApp-style times inside the bubbles');
+ok(/data:image\/svg\+xml/.test(html)&&/class="lg"/.test(html)&&/--hdrBg:#008069/.test(html)&&/Exported with <a href="https:\/\/chatprinter\.vercel\.app"/.test(html),'export HTML: doodle wallpaper, logo, green header and Chat Printer footer');
+ok(/src="media\/IMG_0001\.jpg"/.test(html)&&/could not be downloaded/.test(html),'export HTML: media files and failed downloads are shown');
+const dark=T.toHTML(msgs,{theme:cd,me:'Me',other:'A',withMedia:false});ok(/color-scheme:dark/.test(dark)&&/--bg:#0b141a/.test(dark)&&/Video omitted|\[Image\]|\[Video/.test(dark),'export HTML: dark theme and placeholders without media');
+const evil={...cl,meBg:'url(http://evil.example/t.png)',font:'x;}</style><script>alert(1)</script>',otBg:'red;background:url(//e.example/a)'};
+const eh=T.toHTML(msgs,{theme:evil,me:'Me',other:'A',withMedia:false});ok(!/evil\.example|e\.example|<script>alert/.test(eh),'export HTML: colours or fonts copied from a page cannot add addresses or scripts');
+ok(T.cssSafe('linear-gradient(135deg,#5b6cf0,#8a3ab9)')==='linear-gradient(135deg,#5b6cf0,#8a3ab9)'&&T.cssSafe('rgb(1,2,3)')==='rgb(1,2,3)','css filter keeps normal colours and gradients');
+const pl=T.toHTML(msgs,{theme:{...T.PRESETS.messenger,...T.PRESETS.messenger.light,dark:false},me:'Me',other:'A',withMedia:false});ok(/class="meta"/.test(pl)&&!/class="lg"/.test(pl),'platform-style export keeps its own layout');
+const txt=T.toTXT(msgs,{me:'Me',other:'Sara',withMedia:true});ok(/Sara: <img/.test(txt)&&/Me: ok & done/.test(txt)&&/<attached: media\/IMG_0001\.jpg>/.test(txt),'TXT export format');
+const js=JSON.parse(T.toJSON(msgs,{me:'Me',other:'Sara',withMedia:true}));ok(js.messages.length===3&&js.chat==='Sara'&&js.messages[2].media[0].file==='media/IMG_0001.jpg','JSON export format');
+// ---- background media downloader
+const bd=new JSDOM('<!doctype html><body></body>',{runScripts:'outside-only'}).window;let listener=null,fetched=[];
+bd.chrome={runtime:{id:'ext1',onMessage:{addListener:f=>{listener=f}}}};bd.fetch=async u=>{fetched.push(u);return{ok:true,blob:async()=>new bd.Blob(['x'],{type:'image/jpeg'})}};bd.eval(read('background.js'));
+const ask=(url,sender)=>new Promise(r=>{const keep=listener({type:'fetch',url},sender,r);if(!keep)return;setTimeout(()=>r({ok:'timeout'}),500)});
+const own={id:'ext1',tab:{id:1}};
+const good=await ask('https://scontent-lhr8-1.xx.fbcdn.net/v/t1/a.jpg',own);ok(good.ok===true&&/^data:image\/jpeg/.test(good.dataUrl),'downloader: fetches pictures from a platform CDN');
+for(const u of ['http://scontent.xx.fbcdn.net/a.jpg','https://evil.example/a.jpg','https://facebook.com.evil.example/a.jpg','file:///etc/passwd','javascript:alert(1)','not a url','https://127.0.0.1/admin'])fetched.length=0,ok((await ask(u,own)).ok===false&&fetched.length===0,'downloader refuses '+u);
+fetched.length=0;ok((await ask('https://x.com/a.png',{id:'other',tab:{id:1}})).ok===false&&(await ask('https://x.com/a.png',{id:'ext1'})).ok===false&&fetched.length===0,'downloader ignores messages from other extensions or from no tab');
+console.log(log.join('\n'));console.log(log.filter(l=>l.startsWith('FAIL')).length?'\nSOME FAILED':'\nALL PASSED ('+log.length+')');process.exit(0);
