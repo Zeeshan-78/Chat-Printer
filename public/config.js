@@ -1,7 +1,7 @@
 // Fill these in once. They are public values, safe to commit to GitHub.
 // This file is separate so that updating app.js never erases your settings.
 window.CHATPRINTER = {
-  endpoint: 'https://cloud.appwrite.io/v1',     // use YOUR region endpoint, e.g. https://sgp.cloud.appwrite.io/v1
+  endpoint: 'https://sgp.cloud.appwrite.io/v1',     // use YOUR region endpoint, e.g. https://sgp.cloud.appwrite.io/v1
   projectId: 'YOUR-PROJECT-ID',
   functionId: 'YOUR-FUNCTION-ID',
   supportEmail: 'support@yourdomain.com',
