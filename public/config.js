@@ -3,7 +3,7 @@
 window.CHATPRINTER = {
   endpoint: 'https://sgp.cloud.appwrite.io/v1',     // use YOUR region endpoint, e.g. https://sgp.cloud.appwrite.io/v1
   projectId: '6af9e75500246cec8feb',
-  functionId: 'YOUR-FUNCTION-ID',
+  functionId: '6afa94030022a59e3ef1',
   supportEmail: 'support@yourdomain.com',
   payNumber: '03094034322',
   whatsapp: '923094034322'
