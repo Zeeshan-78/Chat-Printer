@@ -2,7 +2,7 @@
 // This file is separate so that updating app.js never erases your settings.
 window.CHATPRINTER = {
   endpoint: 'https://sgp.cloud.appwrite.io/v1',     // use YOUR region endpoint, e.g. https://sgp.cloud.appwrite.io/v1
-  projectId: 'YOUR-PROJECT-ID',
+  projectId: '6af9e75500246cec8feb',
   functionId: 'YOUR-FUNCTION-ID',
   supportEmail: 'support@yourdomain.com',
   payNumber: '03094034322',
