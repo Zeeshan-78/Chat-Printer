@@ -10,7 +10,20 @@
     <img src="icons/logo-white.png" alt="" width="40" height="28">
     <div><span class="wm"><b>CHAT</b>PRINTER</span><small>Chat Exporter</small></div>
   </header>
-  <main>
+
+  <div id="gate" class="gate" hidden>
+    <h2>Sign in to export</h2>
+    <p class="sub">The exporter is part of your Chat Printer account. Create an extension key on the website and paste it here — no one can export without it.</p>
+    <label>Extension key
+      <input id="key" type="text" placeholder="cp_…" autocomplete="off" spellcheck="false">
+    </label>
+    <button id="unlock" class="primary">Unlock exporter</button>
+    <div id="gatestatus"></div>
+    <p class="foot">Get a key: open <a href="https://chatprinter.vercel.app" target="_blank" rel="noopener">chatprinter.vercel.app</a> → sign in → Account → Browser extension.</p>
+  </div>
+
+  <main id="app" hidden>
+    <div class="planline" id="planline" hidden></div>
     <p class="sub">Open the chat you want, then export it.</p>
 
     <label>Format
@@ -53,7 +66,9 @@
 
     <div id="status"></div>
     <p class="foot">Everything stays in your browser. For WhatsApp chats use <a href="https://chatprinter.vercel.app" target="_blank" rel="noopener">Chat Printer</a>.</p>
+    <button id="signout" class="linkbtn">Sign out (remove the key from this browser)</button>
   </main>
+  <script src="https://chatprinter.vercel.app/config.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>
