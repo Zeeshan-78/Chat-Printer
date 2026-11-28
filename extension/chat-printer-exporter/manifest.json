@@ -1,12 +1,15 @@
 {
   "manifest_version": 3,
   "name": "Chat Printer Exporter",
-  "version": "1.2.0",
-  "description": "Save the chat you have open on Messenger, Instagram, X, Telegram Web, LinkedIn or Discord as HTML, TXT or JSON, with or without media. Runs in your browser; nothing is uploaded.",
+  "version": "2.0.0",
+  "description": "Save the chat you have open on Messenger, Instagram, X, Telegram Web, LinkedIn or Discord as HTML, TXT or JSON, with or without media. Sign in with your Chat Printer extension key; everything runs in your browser.",
   "permissions": [
     "storage"
   ],
   "host_permissions": [
+    "https://chatprinter.vercel.app/*",
+    "https://cloud.appwrite.io/*",
+    "https://*.cloud.appwrite.io/*",
     "*://*.facebook.com/*",
     "*://*.messenger.com/*",
     "*://*.instagram.com/*",
