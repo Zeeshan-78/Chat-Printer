@@ -6,7 +6,7 @@ const P=new URL('../public/',import.meta.url).pathname,MB=1048576,{db,tables}=mo
 const errs=[],log=[],calls=[],scrolls=[];const ok=(c,m)=>log.push((c?'PASS ':'FAIL ')+m);const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const reg=new Map();let session=null;
 const uo=u=>({$id:u.id,email:u.email,name:u.name||'',prefs:u.prefs||{},passwordUpdate:u.password?'2026-11-17':'',emailVerification:true,registration:'2026-11-17T10:00:00Z'});
-const usersMock={async list({queries=[],search}={}){let r=[...reg.values()].filter(u=>!search||u.email.includes(search)||(u.name||'').includes(search));return{total:r.length,users:r.map(uo)}}};
+const usersMock={async list({queries=[],search}={}){let r=[...reg.values()].filter(u=>!search||u.email.includes(search)||(u.name||'').includes(search));return{total:r.length,users:r.map(uo)}},async get({userId}){const u=[...reg.values()].find(x=>x.id===userId);if(!u)throw new Error('nf');return uo(u)},async updatePrefs({userId,prefs}){const u=[...reg.values()].find(x=>x.id===userId);u.prefs=prefs;return u}};
 function boot(url){
   const vc=new VirtualConsole();vc.on('jsdomError',e=>errs.push('jsdomError: '+(e.detail&&e.detail.stack||e.message).split('\n').slice(0,3).join(' | ')));
   const html=fs.readFileSync(P+'index.html','utf8').replace(/<script[^>]*><\/script>/g,'').replace(/<link rel="stylesheet"[^>]*>/,'');
@@ -45,7 +45,7 @@ const signOutIfAny=async()=>{if(session){session=null;}};
 const signUp=async(email)=>{await hash('account');await click('#tabup');fill('#su_email',email);await click('#sendotp',30);fill('#acode','123456');await click('#verify',150)};
 try{
  set(boot('https://chatprinter.test/'));await sleep(100);
- ok(d.querySelectorAll('#planprev .plan').length===3&&/Text only/.test($('#planprev .plan').textContent),'landing shows 3 plan cards; Free is text only');
+ ok(d.querySelectorAll('#planprev .plan').length===2&&/Text only/.test($('#planprev .plan').textContent),'landing shows 2 plan cards; Free is text only');
  ok(!!$('.hero2 h1')&&!!$('.phone')&&d.querySelectorAll('#features .fcard').length===6&&d.querySelectorAll('.step').length===3,'landing: hero, phone mock, 3 steps, 6 features');
  ok(!!$('.ftr a[href="/privacy"]')&&!!$('.ftr a[href="/terms"]')&&!!$('#fwa')&&d.querySelectorAll('.ftr-grid > div').length===4,'footer has 4 columns with legal and support links');
  ok($('#navadmin').hidden&&$('#plantext').textContent==='Sign in to use the converter.','signed out: no admin link, plan bar asks to sign in');
@@ -98,22 +98,22 @@ try{
  $('#dfmt').value='auto';$('#dfmt').dispatchEvent(new w.Event('change'));await click('#dclear');ok(d.querySelectorAll('.chat .b').length>=4&&$('#shown').textContent==='','clear dates shows everything again');
  fill('#dfrom','2027-01-01');$('#dfrom').dispatchEvent(new w.Event('change'));await sleep(40);ok(/No messages match/.test($('#stage').textContent),'empty range shows a friendly message');fill('#dfrom','');$('#dfrom').dispatchEvent(new w.Event('change'));
  // payment -> owner approves
- await hash('billing');await click('#plans .plan:nth-child(2) button');await click('#tablocal');fill('#ptid','TID123456');fill('#pname','Ali');await click('#pwa',120);ok(/Payment submitted/.test($('#ps').textContent),'Ali submits a Pro payment');
+ await hash('billing');await click('#plans .plan:nth-child(2) button');await click('#tablocal');fill('#ptid','TID123456');fill('#pname','Ali');await click('#pwa',120);ok(/Payment submitted/.test($('#ps').textContent),'Ali submits a paid export payment');
  await hash('account');ok(/TID123456/.test($('#mypay').textContent)&&/pending/.test($('#mypay').textContent),'payment shows as pending in the user panel');
+ await click('#extkey_gen',150);ok(/cp_[0-9a-f]{48}/.test($('#extkey_val').textContent)&&!$('#extkey_box').hidden,'extension key card creates a cp_ key and shows it once');
  await click('#signout',100);fill('#li_email','owner@example.com');await signUp('owner@example.com');
  await hash('admin');await click('[data-at="pay"]',120);ok(/TID123456/.test($('#pend').textContent)&&/pending/.test($('#pend').textContent),'owner sees the pending payment');
  [...d.querySelectorAll('#pend button')].find(b=>b.textContent==='Approve').click();await sleep(200);ok($('#adm').textContent==='Done.','owner approves');
  $('#pfilter').value='approved';$('#pfilter').dispatchEvent(new w.Event('change'));await sleep(80);ok(/approved/.test($('#pend').textContent),'payments filter: approved');
- await click('[data-at="usr"]',120);fill('#usearch','ali');await click('#ugo',120);ok(/Ali Khan/.test($('#ulist').textContent)&&/\+923001234567/.test($('#ulist').textContent)&&/Pro until/.test($('#ulist').textContent),'users tab: search, phone and plan shown');
- [...d.querySelectorAll('#ulist button')].find(b=>b.textContent==='Grant Ultra').click();await sleep(200);ok(/Ultra Pro until/.test($('#ulist').textContent),'owner grants Ultra for 30 days');
- [...d.querySelectorAll('#ulist button')].find(b=>b.textContent==='Grant Pro').click();await sleep(200);
+ await click('[data-at="usr"]',120);fill('#usearch','ali');await click('#ugo',120);ok(/Ali Khan/.test($('#ulist').textContent)&&/\+923001234567/.test($('#ulist').textContent)&&/Paid/.test($('#ulist').textContent),'users tab: search, phone and plan shown');
+ [...d.querySelectorAll('#ulist button')].find(b=>b.textContent==='Grant exports').click();await sleep(200);ok(/Paid/.test($('#ulist').textContent)&&/[0-9]+ credit/.test($('#ulist').textContent),'owner grants export credits');
  await click('#signout',100);
  // Ali on Pro: media included
  await hash('account');fill('#li_email','ali@example.com');fill('#li_pass','Zk4$wNp8@hQc5');await click('#doin',150);
- ok(/Pro plan/.test($('#plantext').textContent)&&/photos, voice notes and videos included/.test($('#plantext').textContent),'Ali sees Pro plan with media included');
+ ok(/Full export plan/.test($('#plantext').textContent)&&/photos, voice notes and videos included/.test($('#plantext').textContent),'Ali sees the paid plan with media included');
  await hash('home');await upload(mk());await sleep(100);
- ok(d.querySelectorAll('.chat img').length===1&&d.querySelectorAll('.chat audio').length===1,'Pro: photo and voice note render');
- await hash('account');ok(/19 of 20|Used today: 1 of 20/.test($('#usage').textContent)||/1 of 20/.test($('#usage').textContent),'user panel shows usage: '+$('#usage').textContent.replace(/\s+/g,' ').slice(0,60));
+ ok(d.querySelectorAll('.chat img').length===1&&d.querySelectorAll('.chat audio').length===1,'paid: photo and voice note render');
+ await hash('account');ok(/Credits/.test($('#usage').textContent)&&/Included/.test($('#usage').textContent),'user panel shows credits and media: '+$('#usage').textContent.replace(/\s+/g,' ').slice(0,80));
  await hash('admin');ok($('#admin').hidden&&!$('#home').hidden,'non-admin cannot open #admin');
  let saved=null;w.HTMLAnchorElement.prototype.click=function(){if(this.download)saved=w._b[this.href]};await hash('home');await click('#html',500);
  if(saved){const t=await new Promise(r=>{const fr=new w.FileReader();fr.onload=()=>r(fr.result);fr.readAsText(saved)});ok(/<img[^>]+src="data:image\/jpeg;base64,/.test(t)&&/<audio[^>]+controls/.test(t)&&!/<script/.test(t),'Pro: HTML export embeds media');}else ok(false,'HTML export missing');
@@ -123,11 +123,11 @@ session=null;set(boot('https://chatprinter.test/?auth=failed'));await sleep(150)
 
  // ===== v3 features =====
  session=null;set(boot('https://chatprinter.test/'));await sleep(150);
- ok(/PKR\s?450/.test($('#planprev').textContent)&&$('#curpick').value==='PKR','location Pakistan: prices in PKR (detected from the visitor location)');
- $('#curpick').value='EUR';$('#curpick').dispatchEvent(new w.Event('change'));await sleep(30);ok(/€3\.99/.test($('#planprev').textContent)&&$('#curpick2').value==='EUR','changing currency updates every price and both selectors');
- globalThis.__loc={countryCode:'SA',country:'Saudi Arabia',eu:false};w.localStorage.clear();set(boot('https://chatprinter.test/'));await sleep(150);ok(/14\.99/.test($('#planprev').textContent)&&/Saudi Arabia/.test($('#curnote').textContent),'location Saudi Arabia: prices in riyal with a note');
+ ok(/PKR\s?100/.test($('#planprev').textContent)&&$('#curpick').value==='PKR','location Pakistan: prices in PKR (detected from the visitor location)');
+ $('#curpick').value='EUR';$('#curpick').dispatchEvent(new w.Event('change'));await sleep(30);ok(/€1\.49/.test($('#planprev').textContent)&&$('#curpick2').value==='EUR','changing currency updates every price and both selectors');
+ globalThis.__loc={countryCode:'SA',country:'Saudi Arabia',eu:false};w.localStorage.clear();set(boot('https://chatprinter.test/'));await sleep(150);ok(/5\.49/.test($('#planprev').textContent)&&/Saudi Arabia/.test($('#curnote').textContent),'location Saudi Arabia: prices in riyal with a note');
  globalThis.__loc={countryCode:'DE',country:'Germany',eu:true};w.localStorage.clear();set(boot('https://chatprinter.test/'));await sleep(150);ok(/€/.test($('#planprev').textContent),'EU country: prices in euro');
- globalThis.__loc={countryCode:'CN',country:'China',eu:false};w.localStorage.clear();set(boot('https://chatprinter.test/'));await sleep(150);ok(/28|CN¥/.test($('#planprev').textContent),'China: prices in yuan');
+ globalThis.__loc={countryCode:'CN',country:'China',eu:false};w.localStorage.clear();set(boot('https://chatprinter.test/'));await sleep(150);ok(/10\.9|CN¥/.test($('#planprev').textContent),'China: prices in yuan');
  globalThis.__loc={countryCode:'PK',country:'Pakistan',eu:false};
  // password eye, meter, generator
  session=null;set(boot('https://chatprinter.test/'));await sleep(100);
@@ -152,16 +152,17 @@ session=null;set(boot('https://chatprinter.test/?auth=failed'));await sleep(150)
  const readBlob=b=>new Promise(r=>{const fr=new w.FileReader();fr.onload=()=>r(fr.result);fr.readAsText(b)});
  session=null;set(boot('https://chatprinter.test/'));await sleep(100);hookAnchor();
  await hash('account');fill('#li_email','ali@example.com');fill('#li_pass','Zk4$wNp8@hQc5');await click('#doin',250);
+ tables.subscriptions.rows.get('usr_ali').credits=5; // top up so both uploads below can run
  await hash('home');await upload(new w.File([bufg],'family.zip'));
  ok(!!$('.chat-head .s')&&/Ali/.test($('.chat-head .s').textContent)&&/Omar/.test($('.chat-head .s').textContent)&&/You/.test($('.chat-head .s').textContent)&&!/messages/.test($('.chat-head').textContent),'group chat header lists member names and no message count: '+($('.chat-head .s')||{}).textContent);
  await upload(mk());ok(!$('.chat-head .s')&&!/messages/.test($('.chat-head').textContent),'one-to-one chat header shows only the name');
  // receipts, devices, data download, currency preference saved to profile
  await hash('account');
  const rb=[...d.querySelectorAll('#mypay button')].find(b=>b.textContent==='Receipt');await click('#mypay .arow button',100);
- const rw=globalThis.__rw;ok(!!rb&&rw&&/Payment receipt/.test(rw.document.body.textContent)&&/TID123456/.test(rw.document.body.textContent)&&/Pro/.test(rw.document.body.textContent),'receipt opens with plan, amount and Transaction ID');
+ const rw=globalThis.__rw;ok(!!rb&&rw&&/Payment receipt/.test(rw.document.body.textContent)&&/TID123456/.test(rw.document.body.textContent)&&/One full export/.test(rw.document.body.textContent),'receipt opens with item, amount and Transaction ID');
  ok(d.querySelectorAll('#sessions .arow').length===2&&/this device/.test($('#sessions').textContent),'devices list shows 2 sessions, one marked this device');
  const so=[...d.querySelectorAll('#sessions button')].find(b=>b.textContent==='Sign out');so.click();await sleep(60);ok(calls.some(c=>c[0]==='delsess'&&c[1]==='s2'),'a single device can be signed out');
- $('#pref_cur').value='USD';$('#pref_cur').dispatchEvent(new w.Event('change'));await sleep(60);ok(reg.get('ali@example.com').prefs.currency==='USD'&&/\$3\.99/.test($('#planprev').textContent),'currency preference saved on the profile and applied');
+ $('#pref_cur').value='USD';$('#pref_cur').dispatchEvent(new w.Event('change'));await sleep(60);ok(reg.get('ali@example.com').prefs.currency==='USD'&&/\$1\.49/.test($('#planprev').textContent),'currency preference saved on the profile and applied');
  await click('#dl_data',100);const dj=JSON.parse(await readBlob(globalThis.__dl.blob));ok(dj.profile.email==='ali@example.com'&&Array.isArray(dj.payments)&&!JSON.stringify(dj).includes('data:image'),'download my data: JSON with profile and payments, no photo blob');
  // card checkout without provider configured
  await hash('billing');await click('#plans .plan:nth-child(2) button');ok($('#paylocal').hidden===false||$('#paycard').hidden===false,'payment panel opens');
@@ -178,10 +179,10 @@ session=null;set(boot('https://chatprinter.test/?auth=failed'));await sleep(150)
  await click('#pcsv',150);const csv=await readBlob(globalThis.__dl.blob);ok(globalThis.__dl.name==='payments.csv'&&csv.split('\n')[0]==='date,name,plan,amount,currency,method,tid,status,source,user_id','CSV export downloads with a header row');
  ok(csv.split('\n').length>=3&&csv.includes('"\'=HYPERLINK')&&!csv.includes(',"=HYPERLINK'),'CSV export neutralises spreadsheet formulas');
  await click('[data-at="usr"]',150);ok(/\(no email\)/.test($('#ulist').textContent),'users tab lists an account with no email (TikTok)');
- fill('#usearch','ali');await click('#ugo',150);fill('#ugdays','10');
- [...d.querySelectorAll('#ulist button')].find(b=>b.textContent==='Grant Ultra').click();await sleep(200);ok(/Ultra Pro until/.test($('#ulist').textContent),'admin grants a plan for custom days');
- const exp=(await new Promise(r=>r(tables.subscriptions.rows.get('usr_ali').expiresAt)));const dd=(new Date(exp)-Date.now())/864e5;ok(dd>9.8&&dd<10.2,'custom grant length is 10 days');
- [...d.querySelectorAll('#ulist button')].find(b=>b.textContent==='End plan now').click();await sleep(200);ok(/Free/.test($('#ulist .chip:last-of-type').textContent)||/Free/.test($('#ulist').textContent)&&!/Ultra Pro until/.test($('#ulist').textContent),'admin ends a plan immediately');
+ fill('#usearch','ali');await click('#ugo',150);fill('#ugdays','7');
+ [...d.querySelectorAll('#ulist button')].find(b=>b.textContent==='Grant exports').click();await sleep(200);ok(/Paid/.test($('#ulist').textContent)&&/10 credits/.test($('#ulist').textContent),'admin grants 7 export credits (3 left + 7 = 10)');
+ ok(tables.subscriptions.rows.get('usr_ali').credits===10,'credit grant stored on the subscription');
+ [...d.querySelectorAll('#ulist button')].find(b=>b.textContent==='Set free').click();await sleep(200);ok(/Free/.test($('#ulist').textContent)&&tables.subscriptions.rows.get('usr_ali').credits===0,'admin sets the user back to Free (credits cleared)');
  await click('[data-at="auto"]',150);ok(/Off: set SMS_SECRET/.test($('#autobox').textContent)&&/Not set up/.test($('#autobox').textContent),'automation tab reports what is not configured');
  
 }catch(e){log.push('CRASH '+(e.stack||e).toString().split('\n').slice(0,4).join(' | '));}

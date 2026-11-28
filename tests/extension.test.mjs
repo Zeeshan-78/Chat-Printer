@@ -7,7 +7,7 @@ const man=JSON.parse(read('manifest.json'));
 ok(man.manifest_version===3&&man.name==='Chat Printer Exporter'&&/^\d+\.\d+\.\d+$/.test(man.version),'manifest: Manifest V3, branded name, numeric version '+man.version);
 ok(JSON.stringify(man.permissions)==='["storage"]','manifest: the only permission is "storage"');
 const hosts=[...man.host_permissions,...man.content_scripts.flatMap(s=>s.matches)];
-ok(hosts.every(h=>/^\*:\/\/(\*\.)?[a-z0-9.-]+\/\*$/.test(h))&&!hosts.some(h=>/all_urls|\*:\/\/\*\/\*/.test(h)),'manifest: site access limited to named hosts (no <all_urls>)');
+ok(hosts.every(h=>/^(\*|https):\/\/(\*\.)?[a-z0-9.-]+\/\*$/.test(h))&&!hosts.some(h=>/all_urls|\*:\/\/\*\//.test(h)),'manifest: site access limited to named hosts (no <all_urls>)');
 ok(!('web_accessible_resources' in man)&&!('externally_connectable' in man),'manifest: nothing exposed to web pages');
 const files=[man.background.service_worker,man.action.default_popup,...man.content_scripts.flatMap(s=>s.js),...Object.values(man.icons),...Object.values(man.action.default_icon),'popup.js','popup.css','icons/logo-white.png'];
 ok(files.every(f=>fs.existsSync(X+f)),'manifest: every referenced file exists');
@@ -17,10 +17,15 @@ const code=['background.js','content.js','popup.js','zip.js','brand.js'].map(f=>
 const bad=/\beval\s*\(|new Function|sendBeacon|XMLHttpRequest|WebSocket|importScripts|document\.cookie|localStorage|sessionStorage/;
 ok(code.every(([f,t])=>!bad.test(t)),'code: no eval, beacons, sockets, cookies or page storage');
 const urls=code.flatMap(([f,t])=>[...t.matchAll(/https?:\/\/[^\s'"`)\\]+/g)].map(m=>[f,m[0]]));
-ok(urls.every(([f,u])=>/^https:\/\/chatprinter\.vercel\.app\/?$/.test(u)||f==='brand.js'||/^https:\/\/(www\.w3\.org)/.test(u)),'code: the only web address in the code is the Chat Printer site: '+JSON.stringify(urls.filter(([f,u])=>f!=='brand.js'&&!/chatprinter/.test(u)).slice(0,3)));
+ok(urls.every(([f,u])=>/^https:\/\/chatprinter\.vercel\.app\/?$/.test(u)||/^https:\/\/(\*\.)?cloud\.appwrite\.io/.test(u)||f==='brand.js'||/^https:\/\/(www\.w3\.org)/.test(u)),'code: the only web addresses are the Chat Printer site and the Appwrite cloud API: '+JSON.stringify(urls.filter(([f,u])=>f!=='brand.js'&&!/chatprinter|appwrite/.test(u)).slice(0,3)));
 ok(!/https?:\/\//.test(read('popup.html').replace(/https:\/\/chatprinter\.vercel\.app/g,'')),'popup: no other outside addresses');
 ok(/<option value="cp-light">/.test(read('popup.html'))&&/theme: 'cp-light'/.test(read('popup.js')),'popup: Chat Printer light is the default look');
-ok(/#008069/.test(read('popup.css'))&&/#00a884/.test(read('popup.css'))&&/prefers-color-scheme: dark/.test(read('popup.css')),'popup: WhatsApp green theme with a dark mode');
+ok(/id="gate"/.test(read('popup.html'))&&/id="key"/.test(read('popup.html'))&&/id="unlock"/.test(read('popup.html'))&&/id="app"/.test(read('popup.html')),'popup: sign-in gate with key input and a separate app area');
+ok(/chatprinter\.vercel\.app\/config\.js/.test(read('popup.html')),'popup: loads the site config so the extension always talks to the right Appwrite project');
+ok(/ext_auth/.test(read('popup.js'))&&/consume: 1/.test(read('popup.js'))&&/cp_\[0-9a-f\]\{48\}/.test(read('popup.js')),'popup: verifies the key with the server and spends one export per start');
+ok(/trunc: r\.trunc \|\| 0/.test(read('popup.js')),'popup: passes the plan message limit to the content script');
+ok(/opts\.trunc/.test(read('content.js')),'content script: applies the truncation option');
+ok(/#141712/.test(read('popup.css'))&&/#db3356/.test(read('popup.css'))&&/#b0c6b3/.test(read('popup.css'))&&/prefers-color-scheme: dark/.test(read('popup.css')),'popup: ink & paper theme with crimson accent and a dark mode');
 // ---- content script in a fake page
 const dom=new JSDOM('<!doctype html><body></body>',{runScripts:'outside-only',url:'https://www.instagram.com/direct/t/1/'});const w=dom.window;
 w.chrome={runtime:{id:'x',onMessage:{addListener(){}},sendMessage:async()=>({ok:false})}};w.__CE_TEST_HOOK__=true;w.matchMedia=()=>({matches:false});
