@@ -1,24 +1,42 @@
 // Chat Printer backend (Appwrite Function). Every plan, quota and payment rule lives here, on the server.
 // Visitors never get direct access to the database; they can only call the actions below.
+//
+// Plan model (v4):
+//   free — 1 export total, text only, first 100 messages, files up to 200 MB.
+//   paid — pay once per export; each approved payment adds 1 credit to subscriptions.credits.
+//          A credit is consumed by the "begin" action. Full chat, media included, files up to 1 GB.
+//   Legacy pro/ultra rows with an unexpired expiresAt still behave as paid until they expire.
 import { Client, TablesDB, Users, Query, ID, TablesDBIndexType } from 'node-appwrite';
-import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 const MB = 1048576;
+const FREE_TRUNC = 100; // free exports include only the first 100 messages
 const PLANS = {
-  free: { name: 'Free', max: 200 * MB, total: 2, day: 0 },
-  pro: { name: 'Pro', max: 1024 * MB, total: 0, day: 20 },
-  ultra: { name: 'Ultra Pro', max: 0, total: 0, day: 0 },
+  free: { name: 'Free', max: 200 * MB, trunc: FREE_TRUNC },
+  paid: { name: 'Full export', max: 1024 * MB, trunc: 0 },
 };
-const T = { subs: 'subscriptions', daily: 'daily_usage', pay: 'payments', sms: 'bank_sms' };
+const T = { subs: 'subscriptions', pay: 'payments', sms: 'bank_sms', keys: 'ext_keys' };
 const METHODS = ['JazzCash', 'Easypaisa', 'SadaPay'];
-const PRICES = { pro: 450, ultra: 750 };
+const PAID_PKR = 100; // PKR per paid export (used to validate wallet-SMS amounts)
 const NOPE = { ok: false, reason: 'Not allowed.' };
 const DB = () => process.env.DATABASE_ID || 'chatprinter';
 const code = (e) => (e && (e.code || e.status)) || 0;
-// Day counter runs on Pakistan time (UTC+5), so "next day" starts at midnight in Pakistan.
-const pkDay = () => new Date(Date.now() + 5 * 3600e3).toISOString().slice(0, 10);
-const dayRowId = (uid, day) => createHash('sha256').update(uid + '|' + day).digest('hex').slice(0, 32);
-const effective = (s) => (s.plan !== 'free' && s.expiresAt && new Date(s.expiresAt) > new Date() ? s.plan : 'free');
+const sha256 = (s) => createHash('sha256').update(String(s)).digest('hex');
+
+// Legacy time-based plans count as paid until their expiry date.
+const effective = (s) => (s.plan === 'paid' ? 'paid' : ['pro', 'ultra'].includes(s.plan) && s.expiresAt && new Date(s.expiresAt) > new Date() ? 'paid' : 'free');
+
+// In-memory sliding-window rate limit: 30 calls per minute per user+action.
+const hits = new Map();
+function rateLimit(uid, action) {
+  const key = uid + '|' + action, now = Date.now(), win = 60e3;
+  const arr = (hits.get(key) || []).filter((t) => now - t < win);
+  if (arr.length >= 30) return false;
+  arr.push(now);
+  hits.set(key, arr);
+  if (hits.size > 5000) hits.clear(); // bound memory
+  return true;
+}
 
 async function getSub(db, uid) {
   const base = { databaseId: DB(), tableId: T.subs, rowId: uid };
@@ -27,7 +45,7 @@ async function getSub(db, uid) {
   } catch (e) {
     if (code(e) !== 404) throw e;
     try {
-      return await db.createRow({ ...base, data: { userId: uid, plan: 'free', totalUsed: 0 } });
+      return await db.createRow({ ...base, data: { userId: uid, plan: 'free', freeUsed: 0, credits: 0, exports: 0 } });
     } catch (e2) {
       if (code(e2) !== 409) throw e2;
       return db.getRow(base);
@@ -37,45 +55,39 @@ async function getSub(db, uid) {
 
 async function status(db, uid, admin) {
   const s = await getSub(db, uid);
-  let d = 0;
-  try {
-    d = (await db.getRow({ databaseId: DB(), tableId: T.daily, rowId: dayRowId(uid, pkDay()) })).n || 0;
-  } catch (e) {
-    if (code(e) !== 404) throw e;
-  }
-  return { ok: true, plan: effective(s), expires_at: s.expiresAt || null, total_used: s.totalUsed || 0, day_used: d, is_admin: admin };
+  const eff = effective(s);
+  return { ok: true, plan: eff, credits: s.credits || 0, exports: s.exports || 0, free_used: (s.plan === 'free' && (s.freeUsed || 0) > 0) || eff === 'paid', is_admin: admin };
 }
 
-// Counters are incremented atomically; if the new value is over the limit we undo it and refuse.
+// Quota is consumed atomically; if the new value is over the limit we undo it and refuse.
 async function begin(db, uid, size) {
   if (!Number.isFinite(size) || size < 0) return { ok: false, reason: 'Invalid file size.' };
   const s = await getSub(db, uid);
   const eff = effective(s);
   const P = PLANS[eff];
-  if (P.max && size > P.max) return { ok: false, reason: 'This file is too large for the ' + P.name + ' plan. See Billing to upgrade.' };
+  if (size > P.max) return { ok: false, reason: 'This file is too large for the ' + P.name + ' plan (' + Math.round(P.max / MB) + ' MB max). See Billing to unlock a full export.' };
   if (eff === 'free') {
-    const a = { databaseId: DB(), tableId: T.subs, rowId: uid, column: 'totalUsed', value: 1 };
+    const a = { databaseId: DB(), tableId: T.subs, rowId: uid, column: 'freeUsed', value: 1 };
     const r = await db.incrementRowColumn(a);
-    if (r.totalUsed > P.total) {
+    if ((r.freeUsed || 0) > 1) {
       await db.decrementRowColumn(a);
-      return { ok: false, reason: 'You have used all ' + P.total + ' free conversions. See Billing to upgrade.' };
+      return { ok: false, reason: 'Your free export is already used. Pay once to export the full chat.' };
     }
-  } else if (eff === 'pro') {
-    const day = pkDay();
-    const rowId = dayRowId(uid, day);
-    try {
-      await db.createRow({ databaseId: DB(), tableId: T.daily, rowId, data: { userId: uid, day, n: 0 } });
-    } catch (e) {
-      if (code(e) !== 409) throw e;
-    }
-    const a = { databaseId: DB(), tableId: T.daily, rowId, column: 'n', value: 1 };
+  } else if (s.plan === 'paid') {
+    // Paid by credits: consume one. Legacy pro/ultra rows (plan pro/ultra) skip this while unexpired.
+    const a = { databaseId: DB(), tableId: T.subs, rowId: uid, column: 'credits', value: -1 };
     const r = await db.incrementRowColumn(a);
-    if (r.n > P.day) {
-      await db.decrementRowColumn(a);
-      return { ok: false, reason: 'Daily limit of ' + P.day + ' reached. It renews tomorrow, or upgrade to Ultra Pro.' };
+    if ((r.credits || 0) < 0) {
+      await db.incrementRowColumn({ ...a, value: 1 });
+      return { ok: false, reason: 'You have no paid exports left. Pay once to add another.' };
     }
   }
-  return { ok: true, plan: eff, media: eff !== 'free' };
+  try {
+    await db.incrementRowColumn({ databaseId: DB(), tableId: T.subs, rowId: uid, column: 'exports', value: 1 });
+  } catch (e) {
+    /* older databases without the exports column: quota still enforced, stats just miss it */
+  }
+  return { ok: true, plan: eff, media: eff !== 'free', trunc: P.trunc || 0 };
 }
 
 const safeEq = (a, b) => timingSafeEqual(createHash('sha256').update(String(a)).digest(), createHash('sha256').update(String(b)).digest());
@@ -99,17 +111,24 @@ export function verifyPaddle(raw, header, secret, nowMs = Date.now()) {
   return hs.some((x) => safeEq(h, x));
 }
 
-async function grant(db, uid, plan, days = 30) {
-  const s = await getSub(db, uid);
-  const now = Date.now();
-  const keep = s.plan === plan && s.expiresAt && new Date(s.expiresAt).getTime() > now;
-  const until = new Date((keep ? new Date(s.expiresAt).getTime() : now) + days * 864e5).toISOString();
-  await db.updateRow({ databaseId: DB(), tableId: T.subs, rowId: uid, data: { plan, expiresAt: until } });
-  return until;
+// One approved payment = one export credit.
+async function addCredit(db, uid, n = 1) {
+  await getSub(db, uid);
+  const a = { databaseId: DB(), tableId: T.subs, rowId: uid, column: 'credits', value: Math.abs(n) };
+  if (n >= 0) await db.incrementRowColumn(a);
+  else {
+    const r = await db.decrementRowColumn(a);
+    if ((r.credits || 0) < 0) {
+      await db.incrementRowColumn(a);
+      return { ok: false, reason: 'Not enough credits to remove.' };
+    }
+  }
+  await db.updateRow({ databaseId: DB(), tableId: T.subs, rowId: uid, data: { plan: 'paid' } });
+  return { ok: true };
 }
 
 async function approveRow(db, p, source) {
-  await grant(db, p.userId, p.plan);
+  await addCredit(db, p.userId, 1);
   await db.updateRow({ databaseId: DB(), tableId: T.pay, rowId: p.$id, data: { status: 'approved', source } });
 }
 
@@ -130,7 +149,7 @@ async function autoMatch(db, p) {
   if (!process.env.SMS_SECRET) return false;
   const since = new Date(Date.now() - 7 * 864e5).toISOString();
   const r = await db.listRows({ databaseId: DB(), tableId: T.sms, queries: [Query.greaterThan('$createdAt', since), Query.orderDesc('$createdAt'), Query.limit(200)] });
-  const need = PRICES[p.plan] * 100;
+  const need = PAID_PKR * 100;
   for (const row of r.rows) {
     if (row.matched) continue;
     const s = parseSms(row.text);
@@ -160,7 +179,7 @@ async function smsHook(db, req, res) {
   if (s.tid) {
     const q = await db.listRows({ databaseId: DB(), tableId: T.pay, queries: [Query.equal('tid', [s.tid]), Query.equal('status', ['pending']), Query.limit(1)] });
     const p = q.rows[0];
-    if (p && s.amount >= PRICES[p.plan] * 100) {
+    if (p && s.amount >= PAID_PKR * 100) {
       await approveRow(db, p, 'sms');
       await db.updateRow({ databaseId: DB(), tableId: T.sms, rowId: row.$id, data: { matched: p.$id } });
       matched = true;
@@ -189,7 +208,7 @@ async function paddleHook(db, req, res) {
   const cd = d.custom_data || {};
   const plan = String(cd.plan || '');
   const uid = String(cd.user_id || '');
-  if (!uid || !['pro', 'ultra'].includes(plan) || !d.id) return res.json({ ok: true, ignored: true });
+  if (!uid || plan !== 'paid' || !d.id) return res.json({ ok: true, ignored: true });
   const total = Number(d.details && d.details.totals && d.details.totals.total) || 0;
   let row;
   try {
@@ -199,7 +218,7 @@ async function paddleHook(db, req, res) {
     throw e;
   }
   try {
-    await grant(db, uid, plan);
+    await addCredit(db, uid, 1);
   } catch (e) {
     await db.deleteRow({ databaseId: DB(), tableId: T.pay, rowId: row.$id });
     throw e;
@@ -210,7 +229,7 @@ async function paddleHook(db, req, res) {
 async function createCheckout(uid, b) {
   const key = process.env.PADDLE_API_KEY;
   const plan = String(b.plan || '');
-  const price = plan === 'pro' ? process.env.PADDLE_PRICE_PRO : plan === 'ultra' ? process.env.PADDLE_PRICE_ULTRA : '';
+  const price = plan === 'paid' ? process.env.PADDLE_PRICE_PAID || process.env.PADDLE_PRICE_PRO : '';
   if (!key || !price) return { ok: false, reason: 'Card payments are not set up yet.' };
   const base = process.env.PADDLE_ENV === 'production' ? 'https://api.paddle.com' : 'https://sandbox-api.paddle.com';
   const ctl = new AbortController();
@@ -233,13 +252,13 @@ async function submit(db, uid, b) {
   const method = String(b.method || '');
   const tid = String(b.tid || '').trim().toUpperCase();
   const name = String(b.name || '').trim();
-  if (!['pro', 'ultra'].includes(plan) || !METHODS.includes(method) || !/^[A-Z0-9-]{6,30}$/.test(tid) || name.length < 1 || name.length > 80)
+  if (plan !== 'paid' || !METHODS.includes(method) || !/^[A-Z0-9-]{6,30}$/.test(tid) || name.length < 1 || name.length > 80)
     return { ok: false, reason: 'Check the details and try again.' };
   const pend = await db.listRows({ databaseId: DB(), tableId: T.pay, queries: [Query.equal('userId', [uid]), Query.equal('status', ['pending']), Query.limit(6)] });
   if (pend.rows.length >= 5) return { ok: false, reason: 'Too many pending payments. Please wait for approval.' };
   let row;
   try {
-    row = await createPay(db, { userId: uid, plan, method, tid, name, status: 'pending', currency: 'PKR', amountCents: PRICES[plan] * 100, source: 'manual' });
+    row = await createPay(db, { userId: uid, plan, method, tid, name, status: 'pending', currency: 'PKR', amountCents: PAID_PKR * 100, source: 'manual' });
   } catch (e) {
     if (code(e) === 409) return { ok: false, reason: 'This Transaction ID was already submitted.' };
     throw e;
@@ -255,7 +274,53 @@ async function submit(db, uid, b) {
 
 async function myPayments(db, uid) {
   const r = await db.listRows({ databaseId: DB(), tableId: T.pay, queries: [Query.equal('userId', [uid]), Query.orderDesc('$createdAt'), Query.limit(10)] });
-  return { ok: true, rows: r.rows.map((x) => ({ id: x.$id, plan: x.plan, tid: x.tid, status: x.status, method: x.method, currency: x.currency || 'PKR', amountCents: x.amountCents || PRICES[x.plan] * 100, source: x.source || 'manual', created: x.$createdAt })) };
+  return { ok: true, rows: r.rows.map((x) => ({ id: x.$id, plan: x.plan, tid: x.tid, status: x.status, method: x.method, currency: x.currency || 'PKR', amountCents: x.amountCents || (x.plan === 'paid' ? PAID_PKR * 100 : 0), source: x.source || 'manual', created: x.$createdAt })) };
+}
+
+// Extension login: the extension sends the key the user pasted. The key's SHA-256 is the row id
+// of a lookup row (ext_keys) that points at the account, so no session is needed from the extension.
+async function extAuth(db, b) {
+  const key = String(b.key || '').trim();
+  if (!/^cp_[0-9a-f]{48}$/.test(key)) return { ok: false, reason: 'Invalid extension key.' };
+  let row;
+  try {
+    row = await db.getRow({ databaseId: DB(), tableId: T.keys, rowId: sha256(key) });
+  } catch (e) {
+    if (code(e) === 404) return { ok: false, reason: 'Wrong extension key. Create a key on the website and paste it here.' };
+    throw e;
+  }
+  const s = await getSub(db, row.userId);
+  let eff = effective(s);
+  if (b.consume) {
+    // The extension spends one export here (free quota or one credit), same rules as "begin".
+    const r = await begin(db, row.userId, 0);
+    if (!r.ok) return r;
+    eff = r.plan;
+    const s2 = await getSub(db, row.userId);
+    return { ok: true, plan: eff, media: r.media, trunc: r.trunc || 0, credits: s2.credits || 0 };
+  }
+  return { ok: true, plan: eff, media: eff !== 'free', trunc: PLANS[eff].trunc || 0, credits: s.credits || 0 };
+}
+
+// Create (or rotate) the signed-in user's extension key. Shown once; only its SHA-256 is stored.
+async function extKey(db, users, uid) {
+  const key = 'cp_' + randomBytes(24).toString('hex');
+  let prefs = {};
+  try {
+    prefs = (await users.get({ userId: uid })).prefs || {};
+  } catch (e) {
+    return { ok: false, reason: 'Could not load your account.' };
+  }
+  if (prefs.extKeyHash) {
+    try {
+      await db.deleteRow({ databaseId: DB(), tableId: T.keys, rowId: prefs.extKeyHash });
+    } catch (e) {
+      /* old key row already gone */
+    }
+  }
+  await db.createRow({ databaseId: DB(), tableId: T.keys, rowId: sha256(key), data: { userId: uid } });
+  await users.updatePrefs({ userId: uid, prefs: { ...prefs, extKeyHash: sha256(key) } });
+  return { ok: true, key };
 }
 
 async function adminDecide(db, b) {
@@ -278,21 +343,20 @@ async function adminPayments(db, b) {
   const qs = [Query.orderDesc('$createdAt'), Query.limit(Math.min(500, Math.max(1, Number(b.limit) || 50)))];
   if (['pending', 'approved', 'rejected'].includes(st)) qs.unshift(Query.equal('status', [st]));
   const r = await db.listRows({ databaseId: DB(), tableId: T.pay, queries: qs });
-  return { ok: true, rows: r.rows.map((x) => ({ id: x.$id, plan: x.plan, method: x.method, tid: x.tid, name: x.name, status: x.status, userId: x.userId, created: x.$createdAt, source: x.source || 'manual', currency: x.currency || 'PKR', amountCents: x.amountCents || PRICES[x.plan] * 100 })) };
+  return { ok: true, rows: r.rows.map((x) => ({ id: x.$id, plan: x.plan, method: x.method, tid: x.tid, name: x.name, status: x.status, userId: x.userId, created: x.$createdAt, source: x.source || 'manual', currency: x.currency || 'PKR', amountCents: x.amountCents || (x.plan === 'paid' ? PAID_PKR * 100 : 0) })) };
 }
 
 async function adminStats(db, users) {
   const cnt = async (qs) => (await db.listRows({ databaseId: DB(), tableId: T.pay, queries: [...qs, Query.limit(1)] })).total;
-  const paid = (p) => cnt([Query.equal('status', ['approved']), Query.equal('plan', [p])]);
-  const [pending, approved, pro, ultra] = await Promise.all([cnt([Query.equal('status', ['pending'])]), cnt([Query.equal('status', ['approved'])]), paid('pro'), paid('ultra')]);
-  const act = await db.listRows({ databaseId: DB(), tableId: T.subs, queries: [Query.greaterThan('expiresAt', new Date().toISOString()), Query.limit(1)] });
+  const [pending, approved, paid] = await Promise.all([cnt([Query.equal('status', ['pending'])]), cnt([Query.equal('status', ['approved'])]), cnt([Query.equal('status', ['approved']), Query.equal('plan', ['paid'])])]);
+  const act = await db.listRows({ databaseId: DB(), tableId: T.subs, queries: [Query.greaterThan('credits', 0), Query.limit(1)] });
   let total = null;
   try {
     total = (await users.list({ queries: [Query.limit(1)] })).total;
   } catch (e) {
     total = null; // needs the users.read scope
   }
-  return { ok: true, users: total, active: act.total, pending, approved, revenue: pro * PRICES.pro + ultra * PRICES.ultra };
+  return { ok: true, users: total, active: act.total, pending, approved, revenue: paid * PAID_PKR };
 }
 
 async function adminUsers(db, users, b) {
@@ -315,19 +379,24 @@ async function adminUsers(db, users, b) {
     total: list.total,
     rows: list.users.map((u) => {
       const s = subs.get(u.$id);
-      return { id: u.$id, name: u.name || '', email: u.email || '', phone: (u.prefs && u.prefs.phone) || '', verified: !!u.emailVerification, created: u.registration, plan: s ? effective(s) : 'free', expires_at: (s && s.expiresAt) || null, total_used: s ? s.totalUsed || 0 : 0 };
+      return { id: u.$id, name: u.name || '', email: u.email || '', phone: (u.prefs && u.prefs.phone) || '', verified: !!u.emailVerification, created: u.registration, plan: s ? effective(s) : 'free', credits: s ? s.credits || 0 : 0, exports: s ? s.exports || 0 : 0 };
     }),
   };
+}
+
+async function adminCredits(db, b) {
+  const uid = String(b.userId || '');
+  const n = Math.trunc(Number(b.add));
+  if (!uid || !Number.isFinite(n) || n === 0 || Math.abs(n) > 100) return { ok: false, reason: 'Check the details and try again.' };
+  return addCredit(db, uid, n);
 }
 
 async function adminSetPlan(db, b) {
   const uid = String(b.userId || '');
   const plan = String(b.plan || '');
-  const days = Math.min(3650, Math.max(1, Number(b.days) || 30));
-  if (!uid || !['free', 'pro', 'ultra'].includes(plan)) return { ok: false, reason: 'Check the details and try again.' };
+  if (!uid || !['free', 'paid'].includes(plan)) return { ok: false, reason: 'Check the details and try again.' };
   await getSub(db, uid);
-  const data = plan === 'free' ? { plan: 'free', expiresAt: null } : { plan, expiresAt: new Date(Date.now() + days * 864e5).toISOString() };
-  await db.updateRow({ databaseId: DB(), tableId: T.subs, rowId: uid, data });
+  await db.updateRow({ databaseId: DB(), tableId: T.subs, rowId: uid, data: plan === 'free' ? { plan: 'free', credits: 0 } : { plan: 'paid' } });
   return { ok: true };
 }
 
@@ -340,7 +409,7 @@ async function adminRevenue(db) {
     const d = String(x.$createdAt).slice(0, 10);
     days[d] = (days[d] || 0) + 1;
     const c = x.currency || 'PKR';
-    totals[c] = (totals[c] || 0) + (x.amountCents || PRICES[x.plan] * 100);
+    totals[c] = (totals[c] || 0) + (x.amountCents || (x.plan === 'paid' ? PAID_PKR * 100 : 0));
   }
   return { ok: true, days, totals };
 }
@@ -353,7 +422,8 @@ async function adminAutomation(db) {
   } catch (e) {
     sms = [];
   }
-  return { ok: true, sms_enabled: !!process.env.SMS_SECRET, paddle_ready: !!(process.env.PADDLE_API_KEY && process.env.PADDLE_PRICE_PRO && process.env.PADDLE_PRICE_ULTRA), paddle_webhook: !!process.env.PADDLE_WEBHOOK_SECRET, paddle_env: process.env.PADDLE_ENV === 'production' ? 'production' : 'sandbox', sms };
+  const paddlePrice = process.env.PADDLE_PRICE_PAID || process.env.PADDLE_PRICE_PRO;
+  return { ok: true, sms_enabled: !!process.env.SMS_SECRET, paddle_ready: !!(process.env.PADDLE_API_KEY && paddlePrice), paddle_webhook: !!process.env.PADDLE_WEBHOOK_SECRET, paddle_env: process.env.PADDLE_ENV === 'production' ? 'production' : 'sandbox', sms };
 }
 
 // Creates the database, tables, columns and indexes. Safe to run again: existing things are skipped.
@@ -379,15 +449,14 @@ async function setup(db) {
     if (code(e) === 404) await run('database', () => db.create({ databaseId: d, name: 'Chat Printer' }));
     else log.push('database: NOT READY - ' + (e && e.message ? e.message : e));
   }
-  for (const [id, name] of [[T.subs, 'Subscriptions'], [T.daily, 'Daily usage'], [T.pay, 'Payments'], [T.sms, 'Bank SMS']])
+  for (const [id, name] of [[T.subs, 'Subscriptions'], [T.pay, 'Payments'], [T.sms, 'Bank SMS'], [T.keys, 'Extension keys']])
     await run('table ' + id, () => db.createTable({ databaseId: d, tableId: id, name, permissions: [], rowSecurity: false }));
   await str(T.subs, 'userId', 36, true);
   await str(T.subs, 'plan', 10, false, 'free');
-  await int(T.subs, 'totalUsed');
+  await int(T.subs, 'freeUsed');
+  await int(T.subs, 'credits');
+  await int(T.subs, 'exports');
   await run(T.subs + '.expiresAt', () => db.createDatetimeColumn({ databaseId: d, tableId: T.subs, key: 'expiresAt', required: false }));
-  await str(T.daily, 'userId', 36, true);
-  await str(T.daily, 'day', 10, true);
-  await int(T.daily, 'n');
   await str(T.pay, 'userId', 36, true);
   await str(T.pay, 'plan', 10, true);
   await str(T.pay, 'method', 20, true);
@@ -399,12 +468,12 @@ async function setup(db) {
   await int(T.pay, 'amountCents');
   await str(T.sms, 'text', 1000, true);
   await str(T.sms, 'matched', 40, false, '');
+  await str(T.keys, 'userId', 36, true);
   const idx = (table, key, type, col) => run('index ' + key, () => db.createIndex({ databaseId: d, tableId: table, key, type, columns: [col] }));
   await idx(T.pay, 'tid_unique', TablesDBIndexType.Unique, 'tid');
   await idx(T.pay, 'user_idx', TablesDBIndexType.Key, 'userId');
   await idx(T.pay, 'status_idx', TablesDBIndexType.Key, 'status');
-  await idx(T.pay, 'plan_idx', TablesDBIndexType.Key, 'plan');
-  await idx(T.subs, 'exp_idx', TablesDBIndexType.Key, 'expiresAt');
+  await idx(T.subs, 'credits_idx', TablesDBIndexType.Key, 'credits');
   const ready = log.every((l) => !l.includes('NOT READY'));
   return { ok: true, ready, log, note: ready ? 'Setup complete.' : 'Some items are still being created. Wait about a minute and press the button again.' };
 }
@@ -419,38 +488,55 @@ export const makeHandler = (db, users) => async ({ req, res, error }) => {
       return res.json({ ok: false }, 500);
     }
   }
-  const uid = req.headers['x-appwrite-user-id'];
-  if (!uid) return res.json({ ok: false, reason: 'Please sign in first.' });
+  // Hard body cap: nothing we accept is ever close to this.
+  if (rawBody(req).length > 20000) return res.json({ ok: false, reason: 'Request too large.' });
   let b = {};
   try {
     b = req.bodyJson || (req.body ? JSON.parse(req.body) : {});
   } catch (e) {
     return res.json({ ok: false, reason: 'Bad request.' });
   }
+  const action = String(b.action || '').slice(0, 30);
+  // Extension login has no Appwrite session; it proves itself with the extension key instead.
+  if (action === 'ext_auth') {
+    try {
+      if (!rateLimit('ext', sha256(String(b.key || '')).slice(0, 24))) return res.json({ ok: false, reason: 'Too many attempts. Slow down and try again.' });
+      return res.json(await extAuth(db, b));
+    } catch (e) {
+      error(String((e && e.stack) || e));
+      return res.json({ ok: false, reason: 'Server error. Try again.' });
+    }
+  }
+  const uid = req.headers['x-appwrite-user-id'];
+  if (!uid) return res.json({ ok: false, reason: 'Please sign in first.' });
+  if (!rateLimit(uid, action || 'none')) return res.json({ ok: false, reason: 'Too many requests. Slow down and try again.' });
   const admin = !!process.env.ADMIN_USER_ID && uid === process.env.ADMIN_USER_ID;
   try {
-    switch (b.action) {
+    switch (action) {
       case 'status':
         try {
           return res.json(await status(db, uid, admin));
         } catch (e) {
           // Before the first setup the tables do not exist; the owner still needs to see the Admin box.
-          if (admin && code(e) === 404) return res.json({ ok: true, plan: 'free', expires_at: null, total_used: 0, day_used: 0, is_admin: true, setup_needed: true });
+          if (admin && code(e) === 404) return res.json({ ok: true, plan: 'free', credits: 0, exports: 0, free_used: false, is_admin: true, setup_needed: true });
           throw e;
         }
       case 'begin': return res.json(await begin(db, uid, Number(b.size)));
       case 'submit_payment': return res.json(await submit(db, uid, b));
       case 'my_payments': return res.json(await myPayments(db, uid));
+      case 'create_checkout': return res.json(await createCheckout(uid, b));
+      case 'ext_auth': return res.json(await extAuth(db, b));
+      case 'ext_key': return res.json(await extKey(db, users, uid));
       case 'admin_pending': return res.json(admin ? await adminPayments(db, { status: 'pending' }) : NOPE);
       case 'admin_payments': return res.json(admin ? await adminPayments(db, b) : NOPE);
-      case 'create_checkout': return res.json(await createCheckout(uid, b));
       case 'admin_revenue': return res.json(admin ? await adminRevenue(db) : NOPE);
       case 'admin_automation': return res.json(admin ? await adminAutomation(db) : NOPE);
       case 'admin_stats': return res.json(admin ? await adminStats(db, users) : NOPE);
       case 'admin_users': return res.json(admin ? await adminUsers(db, users, b) : NOPE);
+      case 'admin_credits': return res.json(admin ? await adminCredits(db, b) : NOPE);
       case 'admin_set_plan': return res.json(admin ? await adminSetPlan(db, b) : NOPE);
-      case 'admin_decide': return res.json(admin ? await adminDecide(db, b) : { ok: false, reason: 'Not allowed.' });
-      case 'admin_setup': return res.json(admin ? await setup(db) : { ok: false, reason: 'Not allowed.' });
+      case 'admin_decide': return res.json(admin ? await adminDecide(db, b) : NOPE);
+      case 'admin_setup': return res.json(admin ? await setup(db) : NOPE);
       default: return res.json({ ok: false, reason: 'Unknown action.' });
     }
   } catch (e) {
