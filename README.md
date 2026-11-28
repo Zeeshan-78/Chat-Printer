@@ -25,13 +25,12 @@ Turn exported WhatsApp chats into a **PDF**, **PNG images** or **one self-contai
 
 ## Plans
 
-| Plan | Price | Media | Largest zip | Conversions |
+| Plan | Price | Media | Largest zip | Messages |
 |---|---|---|---|---|
-| Free | PKR 0 | text only | 200 MB | 2 in total |
-| Pro | PKR 450 / month | photos, voice notes, videos | 1 GB | 20 per day, renewed the next day |
-| Ultra Pro | PKR 750 / month | photos, voice notes, videos | no limit | no limit |
+| Free | PKR 0 (1 export, sign-up required) | text only | 200 MB | first 100 only |
+| Full export | pay once per export — PKR 100 (international: USD/EUR 1.49, GBP 1.29, SAR/AED 5.49, CNY 10.9, INR 129) | photos, voice notes, videos | 1 GB | complete chat |
 
-The day counter follows Pakistan time (UTC+5).
+Every approved payment adds one export credit to the account; each export consumes one credit.
 
 ## How it works
 
@@ -42,7 +41,7 @@ Browser (static site on Vercel)
 Appwrite Auth              Appwrite Function (all rules live here)
                                    |
                                    v
-                           Appwrite database: subscriptions, daily_usage, payments
+                           Appwrite database: subscriptions, payments, extension keys
 ```
 
 Conversion itself happens locally in the browser. The server only decides whether a conversion is allowed, counts it, and records payments.
@@ -71,8 +70,9 @@ To look at the site locally: `npx serve public`.
 
 ## Security notes
 
-- `vercel.json` sets a strict Content-Security-Policy and other headers; no third-party scripts are loaded.
+- `vercel.json` sets a strict Content-Security-Policy and other headers (HSTS, nosniff, frame denial, COOP, Permissions-Policy); no third-party scripts are loaded.
 - Visitors have no direct database access. Every write goes through the function, and admin actions only work for the user ID in `ADMIN_USER_ID`.
+- The function rate-limits calls (30 per minute per user and action), caps request bodies, and the browser extension is useless without a signed-in user's extension key (`ext_auth`).
 - There are no secrets in this repository. Keep it that way: never commit API keys.
 - Known limitation: because chats are converted in the browser, a technically skilled person can edit the page and skip the plan check. The server stops normal users, not determined ones.
 
