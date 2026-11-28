@@ -64,7 +64,7 @@
       el = document.createElement('div');
       el.id = '__ce_overlay';
       el.style.cssText =
-        'position:fixed;right:16px;bottom:16px;z-index:2147483647;background:#075e54;color:#fff;' +
+        'position:fixed;right:16px;bottom:16px;z-index:2147483647;background:#141712;color:#fff;' +
         'padding:12px 14px;border-radius:12px;font:13px/1.45 system-ui,sans-serif;' +
         'box-shadow:0 8px 30px rgba(0,0,0,.45);max-width:320px;';
       document.documentElement.appendChild(el);
@@ -72,7 +72,7 @@
     el.innerHTML = '';
     const hd = document.createElement('div');
     hd.textContent = 'Chat Printer';
-    hd.style.cssText = 'font-weight:800;letter-spacing:.06em;font-size:11px;margin-bottom:3px;color:#d9fdd3;';
+    hd.style.cssText = 'font-weight:800;letter-spacing:.06em;font-size:11px;margin-bottom:3px;color:#b0c6b3;';
     el.appendChild(hd);
     const s = document.createElement('div');
     s.textContent = text;
@@ -704,6 +704,15 @@ ${body}
         scrollToEnd(sc);
       }
 
+      // Paid plan exports keep everything; free plan exports only the first `trunc` messages.
+      if (opts.trunc > 0) {
+        let n = 0;
+        for (let i = all.length - 1; i >= 0; i--) {
+          if (all[i].type === 'msg') n++;
+          if (n > opts.trunc) all.splice(i, 1);
+        }
+      }
+
       // media
       const entries = [...store.values()];
       if (opts.withMedia && entries.length) {
@@ -785,7 +794,7 @@ ${body}
       }
       const rows = ctx.getRows();
       const count = snapshot(ctx).filter((m) => m.type === 'msg').length;
-      rows.forEach((r) => (r.style.outline = '2px solid #00a884'));
+      rows.forEach((r) => (r.style.outline = '2px solid #db3356'));
       setTimeout(() => rows.forEach((r) => (r.style.outline = '')), 3500);
       send({ ok: true, rows: rows.length, messages: count, mode: ctx.mode });
     } else if (msg.action === 'pick') {
